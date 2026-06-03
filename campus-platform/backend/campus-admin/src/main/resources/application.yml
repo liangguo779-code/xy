@@ -1,0 +1,73 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: campus-platform
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/campus?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      password: 123456
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+
+# Sa-Token 配置
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  timeout: 86400           # token 有效期 24小时 (秒)
+  active-timeout: -1       # 临时有效期 (-1 不限制)
+  is-concurrent: true      # 允许同一账号并发登录
+  is-share: true           # 多端登录共享 token
+  token-style: uuid
+  is-read-header: true
+  is-read-cookie: false
+  is-log: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# AI 中台地址
+ai:
+  service:
+    url: http://localhost:8000
+
+# 配送服务费(元)
+delivery:
+  service-fee: 5.00
+
+# 文件存储配置
+storage:
+  type: local                    # local 或 oss
+  local:
+    path: C:/Users/Administrator/Desktop/agent/campus-platform/backend/uploads
+    url-prefix: http://localhost:8080/uploads
+  # oss:
+  #   endpoint: oss-cn-hangzhou.aliyuncs.com
+  #   bucket: campus-platform
+  #   access-key: your-access-key
+  #   secret-key: your-secret-key
+  #   url-prefix: https://campus-platform.oss-cn-hangzhou.aliyuncs.com
+
+logging:
+  level:
+    com.campus: debug
