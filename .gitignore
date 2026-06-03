@@ -2,3 +2,6 @@
 .idea/
 *.iml
 .vscode/
+
+# Claude
+.claude/
