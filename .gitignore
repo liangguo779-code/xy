@@ -5,3 +5,29 @@
 
 # Claude
 .claude/
+
+# Java
+campus-platform/backend/**/target/
+*.class
+*.jar
+*.war
+
+# Python
+campus-platform/ai-service/__pycache__/
+campus-platform/ai-service/**/__pycache__/
+campus-platform/ai-service/.venv/
+campus-platform/ai-service/chroma_data/
+*.pyc
+
+# Node
+campus-platform/frontend/node_modules/
+campus-platform/frontend/dist/
+
+# Env
+.env
+*.log
+
+# Docker volumes
+campus-platform/mysql_data/
+campus-platform/redis_data/
+campus-platform/es_data/
