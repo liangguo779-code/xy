@@ -31,3 +31,6 @@ campus-platform/frontend/dist/
 campus-platform/mysql_data/
 campus-platform/redis_data/
 campus-platform/es_data/
+
+# Uploads
+campus-platform/backend/uploads/
