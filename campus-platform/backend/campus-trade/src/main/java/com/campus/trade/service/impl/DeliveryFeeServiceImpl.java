@@ -1,5 +1,6 @@
 package com.campus.trade.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.trade.entity.DeliveryConfig;
 import com.campus.trade.mapper.DeliveryConfigMapper;
@@ -39,7 +40,9 @@ public class DeliveryFeeServiceImpl extends ServiceImpl<DeliveryConfigMapper, De
 
     @Override
     public DeliveryConfig getConfig() {
-        DeliveryConfig config = getOne(null);
+        // 显式取第一条记录，避免多条记录时行为不确定
+        DeliveryConfig config = getOne(new LambdaQueryWrapper<DeliveryConfig>()
+                .orderByAsc(DeliveryConfig::getId).last("LIMIT 1"));
         if (config == null) {
             // 返回默认配置
             config = new DeliveryConfig();
@@ -55,7 +58,13 @@ public class DeliveryFeeServiceImpl extends ServiceImpl<DeliveryConfigMapper, De
 
     @Override
     public void updateConfig(DeliveryConfig config) {
-        config.setId(getConfig().getId());
-        updateById(config);
+        DeliveryConfig existing = getConfig();
+        if (existing.getId() == null) {
+            // 数据库无配置记录，执行插入
+            save(config);
+        } else {
+            config.setId(existing.getId());
+            updateById(config);
+        }
     }
 }

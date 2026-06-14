@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS `goods` (
     `view_count`     INT DEFAULT 0 COMMENT '浏览量',
     `want_count`     INT DEFAULT 0 COMMENT '"我想要"次数',
     `like_count`     INT DEFAULT 0 COMMENT '收藏数',
+    `price_history`  JSON DEFAULT NULL COMMENT '价格变化历史',
+    `refresh_time`   DATETIME DEFAULT NULL COMMENT '最近擦亮时间',
     `off_reason`     VARCHAR(200) COMMENT '下架原因',
     `create_time`    DATETIME DEFAULT CURRENT_TIMESTAMP,
     `update_time`    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -118,6 +120,8 @@ CREATE TABLE IF NOT EXISTS `order` (
     `goods_amount`     DECIMAL(10,2) NOT NULL COMMENT '商品成交价(线下结算,系统记录)',
     `service_fee`      DECIMAL(10,2) DEFAULT 0 COMMENT '平台配送服务费',
     `delivery_fee_payer` VARCHAR(10) DEFAULT 'buyer' COMMENT '跑腿费付款方: buyer/seller',
+    `floor`            INT DEFAULT 1 COMMENT '楼层(配送时用于计算费用)',
+    `has_elevator`     TINYINT DEFAULT 1 COMMENT '是否有电梯: 0-无 1-有',
     `verify_code`      VARCHAR(8) COMMENT '自提核销码(卖家确认用)',
     `status`           TINYINT DEFAULT 0 COMMENT '订单状态(见上方说明)',
     `pickup_location`  VARCHAR(200) COMMENT '自提地点',
@@ -144,6 +148,9 @@ CREATE TABLE IF NOT EXISTS `delivery_order` (
     `pickup_photo`   VARCHAR(500) COMMENT '取货时拍照存证URL',
     `deliver_photo`  VARCHAR(500) COMMENT '送达时拍照存证URL',
     `status`         TINYINT DEFAULT 0 COMMENT '状态: 0-待接单 1-待取货 2-配送中 3-已送达',
+    `floor`          INT DEFAULT 1 COMMENT '楼层',
+    `has_elevator`   TINYINT DEFAULT 1 COMMENT '是否有电梯: 0-无 1-有',
+    `delivery_fee`   DECIMAL(10,2) DEFAULT 0 COMMENT '配送费',
     `accept_time`    DATETIME COMMENT '接单时间',
     `pickup_time`    DATETIME COMMENT '取货时间',
     `deliver_time`   DATETIME COMMENT '送达时间',
@@ -231,6 +238,15 @@ CREATE TABLE IF NOT EXISTS `favorite` (
     UNIQUE KEY `uk_user_goods` (`user_id`, `goods_id`),
     INDEX `idx_goods_id` (`goods_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收藏表';
+
+CREATE TABLE IF NOT EXISTS `browse_history` (
+    `id`          BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `user_id`     BIGINT NOT NULL,
+    `goods_id`    BIGINT NOT NULL,
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_user` (`user_id`),
+    INDEX `idx_goods` (`goods_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='浏览历史表';
 
 -- ============================================================
 -- 关注表
@@ -340,12 +356,23 @@ CREATE TABLE IF NOT EXISTS `comment` (
     `user_id`     BIGINT NOT NULL,
     `parent_id`   BIGINT DEFAULT 0 COMMENT '父评论ID, 0为顶级',
     `content`     VARCHAR(1000) NOT NULL,
+    `images`      JSON DEFAULT NULL COMMENT '评论图片',
     `like_count`  INT DEFAULT 0,
     `status`      TINYINT DEFAULT 1,
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_post` (`post_id`),
     INDEX `idx_parent` (`parent_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评论表';
+
+CREATE TABLE IF NOT EXISTS `post_favorite` (
+    `id`          BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `user_id`     BIGINT NOT NULL,
+    `post_id`     BIGINT NOT NULL,
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_user_post` (`user_id`, `post_id`),
+    INDEX `idx_user` (`user_id`),
+    INDEX `idx_post` (`post_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='帖子收藏表';
 
 -- ============================================================
 -- 系统配置表

@@ -57,14 +57,16 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 14px 16px;
+  border-bottom: 1px solid #F2F3F5;
   cursor: pointer;
   transition: background 0.2s;
+  border-radius: 10px;
+  margin: 0 4px;
 }
 
 .session-item:hover {
-  background: #f5f7fa;
+  background: #F7F8FA;
 }
 
 .session-avatars {
@@ -80,9 +82,9 @@ onMounted(async () => {
   right: -6px;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .session-info {
@@ -97,20 +99,20 @@ onMounted(async () => {
 }
 
 .name {
-  font-weight: 500;
-  color: #303133;
+  font-weight: 600;
+  color: #1D2129;
 }
 
 .time {
   font-size: 12px;
-  color: #c0c4cc;
+  color: #C9CDD4;
 }
 
 .bottom-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #909399;
+  color: #86909C;
   font-size: 13px;
 }
 

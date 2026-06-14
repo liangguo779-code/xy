@@ -15,6 +15,12 @@ public class UserController {
 
     private final UserService userService;
 
+    /** 获取指定用户公开信息（卖家主页等场景） */
+    @GetMapping("/{id}")
+    public R<UserVO> getUserById(@PathVariable Long id) {
+        return R.ok(userService.getCurrentUser(id));
+    }
+
     /** 修改个人信息 */
     @PutMapping("/profile")
     public R<UserVO> updateProfile(@RequestBody UpdateProfileReq req) {

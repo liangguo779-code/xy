@@ -16,9 +16,7 @@
     </el-radio-group>
 
     <!-- 商品列表 -->
-    <div v-if="goodsList.length === 0">
-      <el-empty description="暂无商品" />
-    </div>
+    <el-empty v-if="goodsList.length === 0" description="暂无商品" />
 
     <div v-for="item in goodsList" :key="item.id" class="goods-item">
       <el-card shadow="hover">
@@ -43,12 +41,21 @@
           </div>
           <div class="goods-actions">
             <el-button v-if="item.status === 0" size="small" @click="openEdit(item)">编辑</el-button>
+            <el-button v-if="item.status === 0" size="small" @click="handleRefresh(item)">擦亮</el-button>
+            <el-button v-if="item.status === 0" type="success" size="small" @click="handleMarkSold(item)">标记已售</el-button>
             <el-button v-if="item.status === 0" type="warning" size="small" @click="openOffShelf(item)">下架</el-button>
             <el-button v-if="item.status === 1" type="success" size="small" @click="handleReShelf(item)">重新上架</el-button>
             <el-button size="small" @click="router.push(`/goods/${item.id}`)">查看</el-button>
           </div>
         </div>
       </el-card>
+    </div>
+
+    <!-- 分页 -->
+    <div v-if="total > 20" style="display: flex; justify-content: center; margin-top: 20px">
+      <el-pagination background layout="prev, pager, next"
+                     :current-page="page" :page-size="20" :total="total"
+                     @current-change="p => { page = p; loadGoods() }" />
     </div>
 
     <!-- 编辑弹窗 -->
@@ -129,13 +136,6 @@ function getFirstImage(item) {
   } catch { return '' }
 }
 
-async function loadGoods() {
-  const params = { page: 1, size: 100 }
-  if (statusFilter.value !== '') params.status = statusFilter.value
-  const res = await request.get('/api/goods/my', { params })
-  goodsList.value = res.data?.records || res.data || []
-}
-
 function openEdit(item) {
   editForm.value = {
     id: item.id,
@@ -173,6 +173,33 @@ async function handleReShelf(item) {
   await request.put(`/api/goods/${item.id}`, { status: 0 })
   ElMessage.success('已重新上架')
   loadGoods()
+}
+
+async function handleMarkSold(item) {
+  await request.put(`/api/goods/${item.id}/sold`)
+  ElMessage.success('已标记为已售出')
+  loadGoods()
+}
+
+async function handleRefresh(item) {
+  try {
+    await request.put(`/api/goods/${item.id}/refresh`)
+    ElMessage.success('擦亮成功，商品排名已提升')
+    loadGoods()
+  } catch (e) {
+    ElMessage.warning(e.response?.data?.message || '擦亮失败')
+  }
+}
+
+const page = ref(1)
+const total = ref(0)
+
+async function loadGoods() {
+  const params = { page: page.value, size: 20 }
+  if (statusFilter.value !== '') params.status = statusFilter.value
+  const res = await request.get('/api/goods/my', { params })
+  goodsList.value = res.data?.records || res.data || []
+  total.value = res.data?.total || 0
 }
 
 onMounted(loadGoods)

@@ -28,6 +28,14 @@ public class DisputeServiceImpl extends ServiceImpl<DisputeMapper, Dispute> impl
         if (!order.getBuyerId().equals(reporterId) && !order.getSellerId().equals(reporterId)) {
             throw new BusinessException(403, "无权对此订单发起纠纷");
         }
+        // 防止重复提交：检查是否已有待处理的纠纷
+        Long existing = count(new LambdaQueryWrapper<Dispute>()
+                .eq(Dispute::getOrderId, orderId)
+                .eq(Dispute::getReporterId, reporterId)
+                .eq(Dispute::getStatus, 0));
+        if (existing > 0) {
+            throw new BusinessException("您已对该订单提交过纠纷，请等待处理结果");
+        }
 
         Dispute dispute = new Dispute();
         dispute.setOrderId(orderId);
@@ -61,6 +69,10 @@ public class DisputeServiceImpl extends ServiceImpl<DisputeMapper, Dispute> impl
         if (dispute == null) throw new BusinessException("纠纷不存在");
         if (dispute.getStatus() == 2 || dispute.getStatus() == 3) {
             throw new BusinessException("该纠纷已处理完毕");
+        }
+        // 校验 status 只能为 2（已解决）或 3（已驳回）
+        if (status != 2 && status != 3) {
+            throw new BusinessException("无效的处理状态，只能为 2（已解决）或 3（已驳回）");
         }
         dispute.setHandlerId(handlerId);
         dispute.setResult(result);

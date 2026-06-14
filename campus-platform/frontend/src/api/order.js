@@ -41,8 +41,8 @@ export function createReview(data) {
 }
 
 /** 我的订单列表 */
-export function getMyOrders(status) {
-  return request.get('/api/orders/my', { params: { status } })
+export function getMyOrders(params) {
+  return request.get('/api/orders/my', { params })
 }
 
 /** 订单详情 */

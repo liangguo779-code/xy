@@ -1,0 +1,102 @@
+// ============================================
+// Mixins - 常用样式复用
+// ============================================
+
+@use 'variables' as *;
+
+// Flex 居中
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+// 文字截断
+@mixin text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin text-clamp($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// 卡片样式
+@mixin card-style {
+  background: $bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+  transition: box-shadow $transition-base, transform $transition-base;
+
+  &:hover {
+    box-shadow: $shadow-card-hover;
+    transform: translateY(-2px);
+  }
+}
+
+// 静态卡片（无 hover 效果）
+@mixin card-static {
+  background: $bg-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-sm;
+}
+
+// 渐变按钮
+@mixin gradient-btn {
+  background: $primary-gradient;
+  border: none;
+  color: #fff;
+  border-radius: $radius-full;
+  transition: opacity $transition-base, transform $transition-base;
+
+  &:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+// Pill 标签
+@mixin pill-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: $radius-full;
+  font-size: $font-size-md;
+  transition: all $transition-base;
+  cursor: pointer;
+  user-select: none;
+}
+
+// 毛玻璃效果
+@mixin glass-effect {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+// 响应式
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == sm {
+    @media (max-width: $breakpoint-sm) { @content; }
+  } @else if $breakpoint == md {
+    @media (max-width: $breakpoint-md) { @content; }
+  } @else if $breakpoint == lg {
+    @media (max-width: $breakpoint-lg) { @content; }
+  } @else if $breakpoint == xl {
+    @media (max-width: $breakpoint-xl) { @content; }
+  }
+}

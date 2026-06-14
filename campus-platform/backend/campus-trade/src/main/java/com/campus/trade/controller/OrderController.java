@@ -1,6 +1,7 @@
 package com.campus.trade.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.common.result.R;
 import com.campus.trade.dto.CreateOrderReq;
 import com.campus.trade.dto.CreateReviewReq;
@@ -73,9 +74,14 @@ public class OrderController {
     }
 
     @GetMapping("/my")
-    public R<List<OrderVO>> myOrders(@RequestParam(required = false) Integer status) {
+    public R<Page<OrderVO>> myOrders(
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false, defaultValue = "buyer") String role,
+            @RequestParam(required = false) Boolean inProgress,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return R.ok(orderService.getMyOrders(userId, status));
+        return R.ok(orderService.getMyOrders(userId, status, role, inProgress, page, size));
     }
 
     @GetMapping("/{id}")

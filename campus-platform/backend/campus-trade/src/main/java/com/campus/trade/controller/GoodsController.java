@@ -24,6 +24,7 @@ public class GoodsController {
     public R<Page<Goods>> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Integer type,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
@@ -31,7 +32,7 @@ public class GoodsController {
             @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return R.ok(goodsService.listGoods(keyword, categoryId, type,
+        return R.ok(goodsService.listGoods(keyword, categoryId, userId, type,
                 minPrice, maxPrice, condition, sortBy, page, size));
     }
 
@@ -64,7 +65,8 @@ public class GoodsController {
 
     @GetMapping("/{id}")
     public R<Goods> detail(@PathVariable Long id) {
-        return R.ok(goodsService.getGoodsDetail(id));
+        Long userId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
+        return R.ok(goodsService.getGoodsDetail(id, userId));
     }
 
     @PostMapping
@@ -95,5 +97,26 @@ public class GoodsController {
         Long userId = StpUtil.getLoginIdAsLong();
         goodsService.markAsSold(userId, id);
         return R.ok();
+    }
+
+    /**
+     * 擦亮商品（刷新排名，每天限1次）
+     */
+    @PutMapping("/{id}/refresh")
+    public R<Void> refreshGoods(@PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        goodsService.refreshGoods(userId, id);
+        return R.ok();
+    }
+
+    /**
+     * 浏览历史
+     */
+    @GetMapping("/browse-history")
+    public R<Page<Goods>> browseHistory(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(goodsService.getBrowseHistory(userId, page, size));
     }
 }

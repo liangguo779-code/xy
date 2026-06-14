@@ -11,7 +11,7 @@ public interface GoodsService extends IService<Goods> {
     /**
      * 商品列表（多维度筛选+排序）
      */
-    Page<Goods> listGoods(String keyword, Long categoryId, Integer type,
+    Page<Goods> listGoods(String keyword, Long categoryId, Long userId, Integer type,
                           BigDecimal minPrice, BigDecimal maxPrice,
                           String condition, String sortBy,
                           int page, int size);
@@ -28,6 +28,8 @@ public interface GoodsService extends IService<Goods> {
 
     Goods getGoodsDetail(Long id);
 
+    Goods getGoodsDetail(Long id, Long userId);
+
     Goods createGoods(Long userId, Goods goods);
 
     void updateGoods(Long userId, Long goodsId, Goods goods);
@@ -39,6 +41,12 @@ public interface GoodsService extends IService<Goods> {
     /** 标记已售出 */
     void markAsSold(Long userId, Long goodsId);
 
+    /** 擦亮商品（每天限1次） */
+    void refreshGoods(Long userId, Long goodsId);
+
     /** 我的商品列表 */
     Page<Goods> listMyGoods(Long userId, Integer status, int page, int size);
+
+    /** 浏览历史 */
+    Page<Goods> getBrowseHistory(Long userId, int page, int size);
 }

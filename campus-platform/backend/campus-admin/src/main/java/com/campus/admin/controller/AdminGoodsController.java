@@ -40,8 +40,8 @@ public class AdminGoodsController {
     public R<Void> approve(@PathVariable Long id) {
         Goods goods = goodsMapper.selectById(id);
         if (goods == null) throw new BusinessException("商品不存在");
-        if (goods.getStatus() != 1 && goods.getStatus() != 3) {
-            throw new BusinessException("只有已下架或待审核的商品才能审核通过");
+        if (goods.getStatus() != 3) {
+            throw new BusinessException("只有待审核的商品才能审核通过");
         }
         goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, id)

@@ -53,6 +53,10 @@ public class Goods {
 
     private Integer likeCount;
 
+    private String priceHistory;
+
+    private LocalDateTime refreshTime;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

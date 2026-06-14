@@ -22,6 +22,7 @@ public class OrderVO {
     private String verifyCode;
     private Integer status;
     private String statusDesc;
+    private Long deliveryOrderId;
     private String pickupLocation;
     private LocalDateTime pickupTime;
     private LocalDateTime completeTime;

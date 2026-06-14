@@ -3,6 +3,7 @@ package com.campus.trade.service.impl;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.common.entity.BanRecord;
 import com.campus.common.exception.BusinessException;
@@ -38,14 +39,19 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements OrderService {
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper OBJECT_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     private final OrderMapper orderMapper;
     private final GoodsMapper goodsMapper;
     private final UserMapper userMapper;
     private final ReviewMapper reviewMapper;
+    private final DeliveryOrderMapper deliveryOrderMapper;
     private final DeliveryService deliveryService;
     private final AddressService addressService;
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
+    private final com.campus.common.service.NotificationService notificationService;
 
     @Value("${delivery.service-fee:5.00}")
     private BigDecimal defaultServiceFee;
@@ -60,12 +66,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     + "，解封时间：" + buyerBan.getBanUntil());
         }
 
-        Goods goods = goodsMapper.selectById(req.getGoodsId());
+        // 防重复下单：使用 FOR UPDATE 锁定商品行，获取最新状态
+        Goods goods = goodsMapper.selectOne(new LambdaQueryWrapper<Goods>()
+                .eq(Goods::getId, req.getGoodsId()).last("FOR UPDATE"));
         if (goods == null || goods.getStatus() != 0) {
             throw new BusinessException("商品不存在或已下架");
         }
 
-        // 防重复下单：检查该商品是否已有未完成订单
         Long existingOrder = orderMapper.selectCount(
                 new LambdaQueryWrapper<Order>()
                         .eq(Order::getGoodsId, goods.getId())
@@ -75,13 +82,29 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             throw new BusinessException("该商品已有进行中的订单");
         }
 
-        // 确定买家：优先使用请求中指定的buyerId（配送确认场景），否则为当前用户
-        Long actualBuyerId = (req.getBuyerId() != null) ? req.getBuyerId() : buyerId;
+        // 确定买家和卖家：严格校验，防止伪造
         Long sellerId = goods.getUserId();
+        Long actualBuyerId;
 
-        // 如果买家和卖家是同一人，说明发起方就是卖家，此时确认方应为买家
-        if (actualBuyerId.equals(sellerId)) {
-            // 当前确认者是买家（不是卖家）
+        if (req.getBuyerId() != null) {
+            // 前端指定了买家ID（聊天确认场景）：严格校验
+            if (req.getBuyerId().equals(sellerId)) {
+                throw new BusinessException("买家不能是卖家本人");
+            }
+            // 卖家不能指定买家ID（防止卖家冒充任意用户下单）
+            if (buyerId.equals(sellerId)) {
+                throw new BusinessException("卖家不能代替买家创建订单，请让买家发起交易");
+            }
+            // 当前用户必须是指定的买家
+            if (!buyerId.equals(req.getBuyerId())) {
+                throw new BusinessException(403, "无权创建此订单");
+            }
+            actualBuyerId = req.getBuyerId();
+        } else {
+            // 未指定买家：当前用户即为买家
+            if (buyerId.equals(sellerId)) {
+                throw new BusinessException("不能购买自己发布的商品");
+            }
             actualBuyerId = buyerId;
         }
 
@@ -94,8 +117,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setGoodsAmount(req.getAgreedPrice() != null ? req.getAgreedPrice() : goods.getPrice());
 
         if (req.getDealType() == 0) {
-            // 自提流程：双方已确认，直接进入待核销状态
-            order.setStatus(OrderStatus.CONFIRMED.getCode());
+            // 自提流程：创建订单后等待卖家确认
+            order.setStatus(OrderStatus.PENDING.getCode());
             order.setVerifyCode(RandomUtil.randomString(6).toUpperCase());
             order.setPickupLocation(req.getPickupLocation());
             order.setPickupTime(req.getPickupTime() != null
@@ -117,6 +140,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             order.setStatus(OrderStatus.DELIVERY_NEGOTIATING.getCode());
             order.setServiceFee(defaultServiceFee);
             order.setDeliveryFeePayer(req.getDeliveryFeePayer() != null ? req.getDeliveryFeePayer() : "buyer");
+            order.setFloor(req.getFloor() != null ? req.getFloor() : 1);
+            order.setHasElevator(req.getHasElevator() != null ? (req.getHasElevator() ? 1 : 0) : 1);
         }
 
         orderMapper.insert(order);
@@ -216,6 +241,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (order.getStatus() != OrderStatus.DELIVERY_NEGOTIATING.getCode()) {
             throw new BusinessException("订单状态不正确");
         }
+        // 校验 deliveryFeePayer 合法性
+        if (!"buyer".equals(deliveryFeePayer) && !"seller".equals(deliveryFeePayer)) {
+            throw new BusinessException("无效的跑腿费付款方，只能为 buyer 或 seller");
+        }
 
         // 更新跑腿费付款方
         order.setDeliveryFeePayer(deliveryFeePayer);
@@ -267,6 +296,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         notifyUser(order.getSellerId(), "review_invite", Map.of(
                 "orderId", order.getId(), "msg", "交易完成！请对买家进行评价"
         ));
+        // 通知骑手交易已完成
+        DeliveryOrder deliveryOrder = deliveryOrderMapper.selectOne(
+                new LambdaQueryWrapper<DeliveryOrder>().eq(DeliveryOrder::getOrderId, orderId));
+        if (deliveryOrder != null && deliveryOrder.getRunnerId() != null) {
+            notifyUser(deliveryOrder.getRunnerId(), "order_completed", Map.of(
+                    "orderId", order.getId(), "msg", "订单已完成，买家已确认收货"
+            ));
+        }
 
         log.info("配送交易完成: orderNo={}", order.getOrderNo());
         return getOrderDetail(buyerId, orderId);
@@ -283,13 +320,29 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 || order.getStatus() == OrderStatus.CANCELLED.getCode()) {
             throw new BusinessException("订单已完成或已取消");
         }
-        // 已取货后不能取消
-        if (order.getStatus() >= OrderStatus.PICKED_UP.getCode()) {
-            throw new BusinessException("配送中无法取消，请联系客服");
+        // 已派单后不能取消（骑手已接单），需联系客服
+        if (order.getStatus() >= OrderStatus.ASSIGNED.getCode()) {
+            throw new BusinessException("骑手已接单，无法取消，请联系客服");
         }
 
         order.setStatus(OrderStatus.CANCELLED.getCode());
         orderMapper.updateById(order);
+
+        // 如果是配送订单，取消关联的配送工单
+        if (order.getDealType() != null && order.getDealType() == 1) {
+            DeliveryOrder deliveryOrder = deliveryOrderMapper.selectOne(
+                    new LambdaQueryWrapper<DeliveryOrder>().eq(DeliveryOrder::getOrderId, orderId));
+            if (deliveryOrder != null && deliveryOrder.getStatus() == 0) {
+                // 只有待接单状态的配送工单可以取消
+                deliveryOrder.setStatus(-1); // -1 表示已取消
+                deliveryOrderMapper.updateById(deliveryOrder);
+            }
+        }
+
+        // 取消订单时减少商品的 wantCount
+        goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
+                .eq(Goods::getId, order.getGoodsId())
+                .setSql("want_count = GREATEST(want_count - 1, 0)"));
 
         Long otherUserId = order.getBuyerId().equals(userId)
                 ? order.getSellerId() : order.getBuyerId();
@@ -331,19 +384,30 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         review.setTargetId(targetId);
         review.setRating(req.getRating());
         review.setContent(req.getContent());
+        review.setTags(req.getTags());
         reviewMapper.insert(review);
     }
 
     @Override
-    public List<OrderVO> getMyOrders(Long userId, Integer status) {
-        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
-                .and(w -> w.eq(Order::getBuyerId, userId).or().eq(Order::getSellerId, userId))
-                .orderByDesc(Order::getCreateTime);
-        if (status != null) {
+    public Page<OrderVO> getMyOrders(Long userId, Integer status, String role, Boolean inProgress, int page, int size) {
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
+        if ("seller".equals(role)) {
+            wrapper.eq(Order::getSellerId, userId);
+        } else {
+            wrapper.eq(Order::getBuyerId, userId);
+        }
+        wrapper.orderByDesc(Order::getCreateTime);
+        if (Boolean.TRUE.equals(inProgress)) {
+            wrapper.ne(Order::getStatus, OrderStatus.COMPLETED.getCode())
+                    .ne(Order::getStatus, OrderStatus.CANCELLED.getCode());
+        } else if (status != null) {
             wrapper.eq(Order::getStatus, status);
         }
-        List<Order> orders = orderMapper.selectList(wrapper);
-        return orders.stream().map(o -> toVO(o, userId)).collect(Collectors.toList());
+        Page<Order> orderPage = orderMapper.selectPage(new Page<>(page, size), wrapper);
+        Page<OrderVO> result = new Page<>(page, size, orderPage.getTotal());
+        result.setRecords(orderPage.getRecords().stream()
+                .map(o -> toVO(o, userId)).collect(Collectors.toList()));
+        return result;
     }
 
     @Override
@@ -369,11 +433,43 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     private String generateOrderNo() {
-        return "ORD" + System.currentTimeMillis() + RandomUtil.randomString(4).toUpperCase();
+        // 时间戳(13位) + 8位随机字符，碰撞概率极低
+        return "ORD" + System.currentTimeMillis() + RandomUtil.randomString(8).toUpperCase();
     }
 
     private void notifyUser(Long userId, String type, Object data) {
-        wsHandler.pushToUser(userId, Map.of("type", type, "data", data));
+        // 持久化通知（事务内，确保一致性）
+        try {
+            String title = type.replace("_", " ");
+            String content = "";
+            String extra = null;
+            if (data instanceof Map) {
+                Map<?, ?> map = (Map<?, ?>) data;
+                Object msg = map.get("msg");
+                if (msg != null) content = msg.toString();
+                extra = OBJECT_MAPPER.writeValueAsString(data);
+            } else if (data instanceof Order) {
+                Order o = (Order) data;
+                title = "新订单";
+                content = "订单号: " + o.getOrderNo();
+                extra = "{\"orderId\":" + o.getId() + "}";
+            }
+            notificationService.send(userId, type, title, content, extra);
+        } catch (Exception e) {
+            log.warn("持久化通知失败: userId={}, type={}", userId, type, e);
+        }
+        // WebSocket 推送延迟到事务提交后，避免回滚后客户端收到过期通知
+        org.springframework.transaction.support.TransactionSynchronizationManager
+                .registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            wsHandler.pushToUser(userId, Map.of("type", type, "data", data));
+                        } catch (Exception e) {
+                            log.warn("WebSocket 推送失败: userId={}, type={}", userId, type, e);
+                        }
+                    }
+                });
     }
 
     private OrderVO toVO(Order order, Long currentUserId) {
@@ -390,7 +486,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 order.getBuyerId().equals(currentUserId) ? order.getVerifyCode() : null
         );
         vo.setStatus(order.getStatus());
-        vo.setStatusDesc(OrderStatus.fromCode(order.getStatus()).getDesc());
+        OrderStatus orderStatus = OrderStatus.fromCode(order.getStatus());
+        vo.setStatusDesc(orderStatus != null ? orderStatus.getDesc() : "未知状态");
         vo.setPickupLocation(order.getPickupLocation());
         vo.setPickupTime(order.getPickupTime());
         vo.setCompleteTime(order.getCompleteTime());
@@ -401,7 +498,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (goods != null) {
             vo.setGoodsTitle(goods.getTitle());
             try {
-                List<String> images = new com.fasterxml.jackson.databind.ObjectMapper()
+                List<String> images = OBJECT_MAPPER
                         .readValue(goods.getImages(), List.class);
                 vo.setGoodsImage(images.isEmpty() ? null : images.get(0));
             } catch (Exception e) {
@@ -412,6 +509,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (buyer != null) vo.setBuyerNickname(buyer.getNickname());
         User seller = userMapper.selectById(order.getSellerId());
         if (seller != null) vo.setSellerNickname(seller.getNickname());
+
+        // 填充配送工单ID
+        if (order.getDealType() != null && order.getDealType() == 1) {
+            DeliveryOrder deliveryOrder = deliveryOrderMapper.selectOne(
+                    new LambdaQueryWrapper<DeliveryOrder>().eq(DeliveryOrder::getOrderId, order.getId()));
+            if (deliveryOrder != null) vo.setDeliveryOrderId(deliveryOrder.getId());
+        }
 
         return vo;
     }

@@ -32,6 +32,21 @@
       </div>
     </div>
 
+    <!-- 为你推荐 -->
+    <div v-if="recommendList.length" class="recommend-section">
+      <div class="section-title">为你推荐</div>
+      <div class="recommend-scroll">
+        <div v-for="item in recommendList" :key="item.id" class="recommend-card"
+             @click="router.push(`/goods/${item.id}`)">
+          <el-image :src="getFirstImage(item)" fit="cover" class="recommend-img">
+            <template #error><div class="img-placeholder-sm">图</div></template>
+          </el-image>
+          <div class="recommend-title">{{ item.title }}</div>
+          <div class="recommend-price">¥{{ item.price }}</div>
+        </div>
+      </div>
+    </div>
+
     <!-- 筛选栏 -->
     <div class="filter-bar">
       <div class="filter-tabs">
@@ -199,12 +214,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getGoodsList, createGoods } from '@/api/goods'
+import { getGoodsList, getRecommendGoods, createGoods } from '@/api/goods'
 import { getCategories } from '@/api/category'
 
 const router = useRouter()
 const loading = ref(false)
 const goodsList = ref([])
+const recommendList = ref([])
 const categories = ref([])
 const showPublish = ref(false)
 const publishing = ref(false)
@@ -323,7 +339,8 @@ function handleVideoSuccess(res) {
 }
 
 function handleUploadRemove(file) {
-  const idx = publishForm.images.indexOf(file.url || file.response?.data?.url)
+  const url = file.response?.data?.url || file.url
+  const idx = publishForm.images.indexOf(url)
   if (idx > -1) publishForm.images.splice(idx, 1)
 }
 
@@ -351,10 +368,18 @@ async function handlePublish() {
 
 function goDetail(id) { router.push(`/goods/${id}`) }
 
+async function loadRecommend() {
+  try {
+    const res = await getRecommendGoods({ page: 1, size: 8 })
+    recommendList.value = res.data?.records || []
+  } catch { /* ignore */ }
+}
+
 onMounted(async () => {
   const catRes = await getCategories()
   categories.value = catRes.data || []
   loadGoods()
+  loadRecommend()
 })
 </script>
 
@@ -363,33 +388,106 @@ onMounted(async () => {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
   padding: 12px 0;
 }
 
 .special-zones {
   display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
   overflow-x: auto;
+  padding: 2px;
 }
 
 .zone-card {
   flex-shrink: 0;
-  width: 160px;
-  padding: 12px;
-  border-radius: 12px;
+  width: 170px;
+  padding: 14px;
+  border-radius: 14px;
   cursor: pointer;
   display: flex;
   gap: 10px;
   align-items: center;
-  transition: transform 0.2s;
+  transition: transform 0.25s, box-shadow 0.25s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.zone-card:hover { transform: scale(1.03); }
-.zone-icon { font-size: 24px; }
-.zone-name { font-size: 14px; font-weight: 600; color: #303133; }
-.zone-desc { font-size: 11px; color: #606266; margin-top: 2px; }
+.zone-card:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.zone-icon { font-size: 28px; }
+.zone-name { font-size: 14px; font-weight: 600; color: #1D2129; }
+.zone-desc { font-size: 11px; color: #86909C; margin-top: 2px; }
+
+.recommend-section {
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1D2129;
+  margin-bottom: 12px;
+}
+
+.recommend-scroll {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.recommend-card {
+  flex-shrink: 0;
+  width: 140px;
+  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.25s, box-shadow 0.25s;
+}
+
+.recommend-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(91, 143, 249, 0.12);
+}
+
+.recommend-img {
+  width: 140px;
+  height: 140px;
+}
+
+.img-placeholder-sm {
+  width: 140px;
+  height: 140px;
+  background: #F2F3F5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #C9CDD4;
+}
+
+.recommend-title {
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommend-price {
+  padding: 0 8px 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #F56C6C;
+}
 
 .category-nav {
   overflow-x: auto;
@@ -407,29 +505,35 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   cursor: pointer;
-  color: #606266;
+  color: #4E5969;
   font-size: 12px;
-  min-width: 48px;
-  transition: color 0.2s;
+  min-width: 52px;
+  transition: all 0.25s;
 }
 
-.cat-item.active { color: #409eff; }
+.cat-item:hover { color: #5B8FF9; }
+.cat-item.active { color: #5B8FF9; }
 
 .cat-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #f0f2f5;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: #F2F3F5;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 500;
+  transition: all 0.25s;
 }
 
-.cat-item.active .cat-icon { background: #ecf5ff; color: #409eff; }
+.cat-item.active .cat-icon {
+  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(91, 143, 249, 0.3);
+}
 
 .filter-bar {
   display: flex;
@@ -441,21 +545,26 @@ onMounted(async () => {
 
 .filter-tabs {
   display: flex;
-  gap: 16px;
+  gap: 4px;
   font-size: 14px;
-  color: #909399;
+  color: #86909C;
+  background: #F2F3F5;
+  border-radius: 8px;
+  padding: 3px;
 }
 
 .filter-tabs span {
   cursor: pointer;
-  padding-bottom: 4px;
+  padding: 6px 14px;
+  border-radius: 6px;
   transition: all 0.2s;
 }
 
 .filter-tabs span.active {
-  color: #303133;
+  color: #1D2129;
   font-weight: 500;
-  border-bottom: 2px solid #409eff;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .filter-right {
@@ -468,14 +577,21 @@ onMounted(async () => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: #606266;
+  color: #4E5969;
   cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.filter-trigger:hover {
+  background: #F2F3F5;
 }
 
 /* 瀑布流 */
 .waterfall {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .waterfall-col {
@@ -483,21 +599,21 @@ onMounted(async () => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .goods-card {
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.25s, box-shadow 0.25s;
 }
 
 .goods-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(91, 143, 249, 0.12);
 }
 
 .card-image {
@@ -510,43 +626,59 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 0.3s;
+}
+
+.goods-card:hover .card-image .el-image {
+  transform: scale(1.05);
 }
 
 .img-placeholder {
   width: 100%;
   height: 180px;
-  background: #f5f7fa;
+  background: #F2F3F5;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c0c4cc;
+  color: #C9CDD4;
 }
 
-.want-tag { position: absolute; top: 8px; left: 8px; }
-.condition-tag { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.5); border: none; color: #fff; }
+.want-tag { position: absolute; top: 8px; left: 8px; border-radius: 999px; }
+.condition-tag {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  border: none;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+}
 
-.card-body { padding: 8px 10px; }
+.card-body { padding: 10px 12px; }
 
 .card-title {
-  font-size: 13px;
-  color: #303133;
-  line-height: 1.3;
+  font-size: 14px;
+  color: #1D2129;
+  font-weight: 500;
+  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .card-price {
   display: flex;
   align-items: baseline;
   gap: 4px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
-.price { font-size: 16px; font-weight: 700; color: #f56c6c; }
-.original { font-size: 11px; color: #c0c4cc; text-decoration: line-through; }
+.price { font-size: 18px; font-weight: 700; color: #F56C6C; }
+.original { font-size: 11px; color: #C9CDD4; text-decoration: line-through; }
 
 .card-meta {
   display: flex;
@@ -555,15 +687,15 @@ onMounted(async () => {
 }
 
 .seller { display: flex; align-items: center; gap: 4px; }
-.seller-name { font-size: 12px; color: #909399; }
-.want-count { font-size: 11px; color: #c0c4cc; }
+.seller-name { font-size: 12px; color: #86909C; }
+.want-count { font-size: 11px; color: #C9CDD4; }
 
 .fab {
   position: fixed;
   right: 24px;
   bottom: 80px;
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: linear-gradient(135deg, #ff6b35, #ff4757);
   color: #fff;
@@ -571,10 +703,13 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(255,71,87,0.4);
-  transition: transform 0.2s;
+  box-shadow: 0 6px 20px rgba(255, 71, 87, 0.35);
+  transition: transform 0.25s, box-shadow 0.25s;
   z-index: 100;
 }
 
-.fab:hover { transform: scale(1.1); }
+.fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 8px 28px rgba(255, 71, 87, 0.45);
+}
 </style>

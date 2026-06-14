@@ -19,15 +19,7 @@ public class ReviewController {
 
     private final ReviewService reviewService;
 
-    /**
-     * 创建评价
-     */
-    @PostMapping
-    public R<Void> create(@Valid @RequestBody CreateReviewReq req) {
-        Long reviewerId = StpUtil.getLoginIdAsLong();
-        reviewService.createReview(reviewerId, req);
-        return R.ok();
-    }
+    // 创建评价接口统一使用 POST /api/orders/review
 
     /**
      * 获取某用户收到的评价
@@ -66,5 +58,21 @@ public class ReviewController {
     @GetMapping("/order/{orderId}")
     public R<List<Review>> getOrderReviews(@PathVariable Long orderId) {
         return R.ok(reviewService.getReviewsByOrder(orderId));
+    }
+
+    /**
+     * 获取某用户的评价统计
+     */
+    @GetMapping("/user/{userId}/stats")
+    public R<Map<String, Object>> getUserStats(@PathVariable Long userId) {
+        Double avg = reviewService.getAverageRating(userId);
+        List<Review> reviews = reviewService.getReviewsForUser(userId);
+        long positiveCount = reviews.stream().filter(r -> r.getRating() >= 4).count();
+        double positiveRate = reviews.isEmpty() ? 0 : (double) positiveCount / reviews.size() * 100;
+        return R.ok(Map.of(
+                "averageRating", avg != null ? avg : 0,
+                "reviewCount", reviews.size(),
+                "positiveRate", Math.round(positiveRate)
+        ));
     }
 }

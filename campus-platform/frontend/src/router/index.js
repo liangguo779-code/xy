@@ -26,6 +26,7 @@ const routes = [
     children: [
       { path: 'goods', name: 'Goods', component: () => import('@/views/trade/GoodsList.vue') },
       { path: 'goods/:id', name: 'GoodsDetail', component: () => import('@/views/trade/GoodsDetail.vue') },
+      { path: 'seller/:userId', name: 'SellerProfile', component: () => import('@/views/trade/SellerProfile.vue') },
       { path: 'my-goods', name: 'MyGoods', component: () => import('@/views/trade/MyGoods.vue') },
       { path: 'orders', name: 'Orders', component: () => import('@/views/trade/OrderList.vue') },
       { path: 'orders/:id', name: 'OrderDetail', component: () => import('@/views/trade/OrderDetail.vue') },
@@ -38,6 +39,9 @@ const routes = [
       { path: 'address', name: 'Address', component: () => import('@/views/user/AddressList.vue') },
       { path: 'profile', name: 'ProfileEdit', component: () => import('@/views/user/ProfileEdit.vue') },
       { path: 'favorites', name: 'Favorites', component: () => import('@/views/user/Favorites.vue') },
+      { path: 'browse-history', name: 'BrowseHistory', component: () => import('@/views/user/BrowseHistory.vue') },
+      { path: 'my-reports', name: 'MyReports', component: () => import('@/views/user/MyReports.vue') },
+      { path: 'my-disputes', name: 'MyDisputes', component: () => import('@/views/user/MyDisputes.vue') },
       { path: 'notifications', name: 'Notifications', component: () => import('@/views/user/NotificationList.vue') },
       { path: 'dispatch', name: 'DispatchHall', component: () => import('@/views/delivery/DispatchHall.vue') }
     ]
@@ -54,6 +58,7 @@ const routes = [
       { path: 'disputes', name: 'AdminDisputes', component: () => import('@/views/admin/DisputeManage.vue') },
       { path: 'reports', name: 'AdminReports', component: () => import('@/views/admin/ReportManage.vue') },
       { path: 'bans', name: 'AdminBans', component: () => import('@/views/admin/BanManage.vue') },
+      { path: 'forum', name: 'AdminForum', component: () => import('@/views/admin/ForumManage.vue') },
       { path: 'config', name: 'AdminConfig', component: () => import('@/views/admin/SystemConfig.vue') }
     ]
   }

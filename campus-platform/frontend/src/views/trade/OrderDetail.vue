@@ -55,6 +55,21 @@
         <el-tag v-if="order.status === 8" type="primary">配送中，请等待送达</el-tag>
         <el-button v-if="isBuyer && order.status === 9" type="success"
                    @click="handleConfirmReceive">确认收货（线下付款）</el-button>
+
+        <!-- 物流轨迹 -->
+        <div v-if="deliveryTracks.length" class="delivery-tracks">
+          <div class="tracks-title">物流轨迹</div>
+          <el-timeline>
+            <el-timeline-item v-for="t in deliveryTracks" :key="t.id"
+                              :timestamp="t.createTime" placement="top"
+                              :type="trackType(t.action)">
+              {{ trackDesc(t.action) }}
+              <el-image v-if="t.photoUrl" :src="t.photoUrl" fit="cover"
+                        style="width: 80px; height: 80px; border-radius: 6px; margin-top: 4px"
+                        :preview-src-list="[t.photoUrl]" />
+            </el-timeline-item>
+          </el-timeline>
+        </div>
       </div>
 
       <!-- 通用操作 -->
@@ -64,6 +79,10 @@
           去评价
         </el-button>
         <el-tag v-if="reviewed" type="success">已评价</el-tag>
+        <el-button @click="handleContact">联系对方</el-button>
+        <el-button v-if="order.status === 3 || order.status === 4" type="danger" plain @click="showDispute = true">
+          发起纠纷
+        </el-button>
       </div>
     </el-card>
 
@@ -88,6 +107,34 @@
         <el-button type="primary" @click="handleSubmitReview" :loading="submittingReview">提交评价</el-button>
       </template>
     </el-dialog>
+
+    <!-- 纠纷弹窗 -->
+    <el-dialog v-model="showDispute" title="发起纠纷" width="420">
+      <el-form label-width="70px">
+        <el-form-item label="纠纷原因">
+          <el-radio-group v-model="disputeForm.reason">
+            <el-radio value="商品与描述不符">商品与描述不符</el-radio>
+            <el-radio value="商品有损坏">商品有损坏</el-radio>
+            <el-radio value="未收到商品">未收到商品</el-radio>
+            <el-radio value="其他">其他</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="补充说明">
+          <el-input v-model="disputeForm.evidence" type="textarea" :rows="3" placeholder="请详细描述纠纷情况..." />
+        </el-form-item>
+        <el-form-item label="证据图片">
+          <el-upload action="/api/upload/image" :headers="uploadHeaders"
+                     list-type="picture-card" :limit="5"
+                     :on-success="handleDisputeUploadSuccess" :on-remove="handleDisputeUploadRemove">
+            <el-icon><Plus /></el-icon>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showDispute = false">取消</el-button>
+        <el-button type="danger" @click="handleSubmitDispute" :loading="submittingDispute">提交纠纷</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -96,9 +143,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  getOrderDetail, confirmOrder, completeOrder,
-  payDeliveryFee, confirmReceive, cancelOrder, createReview
+  getOrderDetail, completeOrder, confirmReceive, cancelOrder, createReview
 } from '@/api/order'
+import { getDeliveryTracks } from '@/api/delivery'
+import { createDispute } from '@/api/dispute'
+import request from '@/utils/request'
 
 const route = useRoute()
 const router = useRouter()
@@ -109,6 +158,19 @@ const reviewed = ref(false)
 const submittingReview = ref(false)
 const reviewTags = ['态度好', '描述准确', '发货快', '物品成色好', '沟通顺畅']
 const reviewForm = ref({ rating: 5, tags: [], content: '' })
+const deliveryTracks = ref([])
+const showDispute = ref(false)
+const submittingDispute = ref(false)
+const disputeForm = ref({ reason: '商品与描述不符', evidence: '', evidenceImages: [] })
+const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
+
+function trackType(action) {
+  return { accept: 'primary', pickup: 'warning', deliver: 'success', location: 'info' }[action] || 'info'
+}
+
+function trackDesc(action) {
+  return { accept: '骑手已接单', pickup: '骑手已取货', deliver: '商品已送达', location: '位置更新' }[action] || action
+}
 
 function toggleTag(tag) {
   const idx = reviewForm.value.tags.indexOf(tag)
@@ -122,7 +184,8 @@ async function handleSubmitReview() {
     await createReview({
       orderId: order.value.id,
       rating: reviewForm.value.rating,
-      content: reviewForm.value.content
+      content: reviewForm.value.content,
+      tags: reviewForm.value.tags
     })
     ElMessage.success('评价成功')
     showReview.value = false
@@ -141,7 +204,8 @@ const isSeller = computed(() => order.value?.sellerId === currentUserId.value)
 const canCancel = computed(() => {
   if (!order.value) return false
   const s = order.value.status
-  return s !== 3 && s !== 4 && s !== 8 // 已完成、已取消、配送中不能取消
+  // 已完成(3)、已取消(4)、已派单(7)、已取货(8)、已送达(9) 不能取消
+  return s !== 3 && s !== 4 && s !== 7 && s !== 8 && s !== 9
 })
 
 const statusType = (s) => {
@@ -155,12 +219,19 @@ const statusType = (s) => {
 async function loadOrder() {
   const res = await getOrderDetail(route.params.id)
   order.value = res.data
-}
-
-async function handleConfirm() {
-  await confirmOrder(order.value.id)
-  ElMessage.success('已确认')
-  loadOrder()
+  // 检查当前用户是否已评价
+  try {
+    const reviewRes = await request.get(`/api/reviews/order/${route.params.id}`)
+    const reviews = reviewRes.data || []
+    reviewed.value = reviews.some(r => r.reviewerId === currentUserId.value)
+  } catch { /* ignore */ }
+  // 加载物流轨迹
+  if (order.value.dealType === 1 && order.value.deliveryOrderId) {
+    try {
+      const trackRes = await getDeliveryTracks(order.value.deliveryOrderId)
+      deliveryTracks.value = trackRes.data || []
+    } catch { /* ignore */ }
+  }
 }
 
 async function handleComplete() {
@@ -170,18 +241,6 @@ async function handleComplete() {
   }
   await completeOrder(order.value.id, verifyCode.value)
   ElMessage.success('交易完成')
-  loadOrder()
-}
-
-async function handleCompleteNoCode() {
-  await completeOrder(order.value.id)
-  ElMessage.success('交易完成')
-  loadOrder()
-}
-
-async function handlePayFee() {
-  await payDeliveryFee(order.value.id)
-  ElMessage.success('服务费支付成功')
   loadOrder()
 }
 
@@ -195,6 +254,37 @@ async function handleCancel() {
   await cancelOrder(order.value.id)
   ElMessage.success('已取消')
   loadOrder()
+}
+
+async function handleContact() {
+  const res = await request.post('/api/chat/session', null, { params: { goodsId: order.value.goodsId } })
+  router.push(`/chat/${res.data.id}`)
+}
+
+function handleDisputeUploadSuccess(res) {
+  if (res.code === 200) disputeForm.value.evidenceImages.push(res.data.url)
+}
+
+function handleDisputeUploadRemove(file) {
+  const url = file.response?.data?.url || file.url
+  const idx = disputeForm.value.evidenceImages.indexOf(url)
+  if (idx > -1) disputeForm.value.evidenceImages.splice(idx, 1)
+}
+
+async function handleSubmitDispute() {
+  submittingDispute.value = true
+  try {
+    await createDispute({
+      orderId: order.value.id,
+      reason: disputeForm.value.reason + (disputeForm.value.evidence ? '：' + disputeForm.value.evidence : ''),
+      evidenceImages: disputeForm.value.evidenceImages.length > 0
+        ? JSON.stringify(disputeForm.value.evidenceImages) : undefined
+    })
+    ElMessage.success('纠纷已提交')
+    disputeForm.value = { reason: '商品与描述不符', evidence: '', evidenceImages: [] }
+    showDispute.value = false
+  } catch { ElMessage.error('提交失败') }
+  finally { submittingDispute.value = false }
 }
 
 onMounted(loadOrder)

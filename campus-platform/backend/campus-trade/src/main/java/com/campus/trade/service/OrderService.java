@@ -1,5 +1,6 @@
 package com.campus.trade.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.campus.trade.dto.CreateOrderReq;
 import com.campus.trade.dto.CreateReviewReq;
@@ -57,7 +58,7 @@ public interface OrderService extends IService<Order> {
     /**
      * 获取我的订单列表
      */
-    List<OrderVO> getMyOrders(Long userId, Integer status);
+    Page<OrderVO> getMyOrders(Long userId, Integer status, String role, Boolean inProgress, int page, int size);
 
     /**
      * 获取订单详情

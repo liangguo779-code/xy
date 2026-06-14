@@ -33,6 +33,12 @@ public class Order {
     /** 跑腿费付款方: buyer/seller */
     private String deliveryFeePayer;
 
+    /** 楼层（配送时用于计算费用） */
+    private Integer floor;
+
+    /** 是否有电梯（配送时用于计算费用） */
+    private Integer hasElevator;
+
     /** 自提核销码 */
     private String verifyCode;
 

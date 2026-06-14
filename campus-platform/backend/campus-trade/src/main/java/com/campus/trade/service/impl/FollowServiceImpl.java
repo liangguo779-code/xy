@@ -7,6 +7,7 @@ import com.campus.trade.entity.Follow;
 import com.campus.trade.mapper.FollowMapper;
 import com.campus.trade.service.FollowService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -15,6 +16,7 @@ import java.util.stream.Collectors;
 public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> implements FollowService {
 
     @Override
+    @Transactional
     public void follow(Long followerId, Long followingId) {
         if (followerId.equals(followingId)) throw new BusinessException("不能关注自己");
         Long count = count(new LambdaQueryWrapper<Follow>()

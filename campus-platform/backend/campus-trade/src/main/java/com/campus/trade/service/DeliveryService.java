@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.campus.trade.dto.DeliveryOrderVO;
 import com.campus.trade.entity.DeliveryOrder;
 
+import java.math.BigDecimal;
+
 public interface DeliveryService extends IService<DeliveryOrder> {
 
     /**
@@ -14,17 +16,17 @@ public interface DeliveryService extends IService<DeliveryOrder> {
     /**
      * 交付员接单
      */
-    DeliveryOrderVO acceptOrder(Long runnerId, Long deliveryId);
+    DeliveryOrderVO acceptOrder(Long runnerId, Long deliveryId, BigDecimal lat, BigDecimal lng);
 
     /**
      * 交付员取货(上传拍照存证)
      */
-    DeliveryOrderVO pickupGoods(Long runnerId, Long deliveryId, String photoUrl);
+    DeliveryOrderVO pickupGoods(Long runnerId, Long deliveryId, String photoUrl, BigDecimal lat, BigDecimal lng);
 
     /**
      * 交付员送达(上传拍照存证)
      */
-    DeliveryOrderVO deliverGoods(Long runnerId, Long deliveryId, String photoUrl);
+    DeliveryOrderVO deliverGoods(Long runnerId, Long deliveryId, String photoUrl, BigDecimal lat, BigDecimal lng);
 
     /**
      * 获取待接单工单列表

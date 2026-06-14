@@ -32,6 +32,7 @@ public enum OrderStatus {
         for (OrderStatus s : values()) {
             if (s.code == code) return s;
         }
-        throw new IllegalArgumentException("未知订单状态: " + code);
+        // 返回 null 而非抛异常，调用方需做空判断
+        return null;
     }
 }

@@ -32,6 +32,9 @@ public class Post {
 
     private Integer status;
 
+    @TableField(exist = false)
+    private Boolean liked;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

@@ -58,8 +58,13 @@
       </div>
     </div>
 
+    <!-- 订单已完成提示 -->
+    <div v-if="orderCompleted" class="quick-actions">
+      <el-tag type="success" size="large">订单已完成</el-tag>
+    </div>
+
     <!-- 快捷操作按钮 -->
-    <div class="quick-actions">
+    <div class="quick-actions" v-else>
       <!-- 发起交易（自提/配送） -->
       <el-dropdown trigger="click" @command="handleAction"
                    v-if="!existingOrder && !pendingOrder">
@@ -144,6 +149,8 @@ const sending = ref(false)
 const messagesRef = ref()
 const pendingOrder = ref(null)
 const existingOrder = ref(null)
+const orderCompleted = ref(false)
+const sessionOtherUserId = ref(null)
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 
 let ws = null
@@ -187,14 +194,23 @@ function connectWebSocket() {
     const data = JSON.parse(event.data)
     if (data.type === 'new_msg' && data.data?.sessionId === sessionId) {
       const msg = data.data
-      messages.value.push(msg)
+      // 去重：乐观更新的消息可能与服务器回显重复
+      const isDuplicate = messages.value.some(m =>
+        m.senderId === msg.senderId &&
+        m.content === msg.content &&
+        m.msgType === msg.msgType &&
+        Math.abs(new Date(m.createTime) - new Date(msg.createTime)) < 5000
+      )
+      if (!isDuplicate) {
+        messages.value.push(msg)
+      }
       scrollToBottom()
-      // 检测交易请求
+      // 检测交易请求（包括自己发起的，刷新页面后恢复状态）
       if (msg.msgType === 3 && msg.extra) {
         try {
           const extra = typeof msg.extra === 'string' ? JSON.parse(msg.extra) : msg.extra
           if ((extra?.action === 'self_pickup' || extra?.action === 'delivery')
-              && extra.initiatorId !== userId && !existingOrder.value) {
+              && extra.initiatorId && !existingOrder.value) {
             pendingOrder.value = extra
           }
         } catch { /* ignore */ }
@@ -326,12 +342,13 @@ async function handleConfirmOrder() {
     const info = pendingOrder.value
     if (info.action === 'self_pickup') {
       // 自提确认：创建订单
-      // 发起方是执行方（取货/送货），确认方是接收方
-      // 买家=接收方，卖家=商品主人
-      // 如果发起方是卖家 → 买家是当前确认者
-      // 如果发起方是买家 → 买家是发起者
-      const isInitiatorSeller = goodsInfo.value?.userId === info.initiatorId
-      const buyerId = isInitiatorSeller ? userId : info.initiatorId
+      // 买家判定：当前用户是卖家 → 对方是买家；当前用户是买家 → 自己是买家
+      const isCurrentUserSeller = goodsInfo.value?.userId === userId
+      const buyerId = isCurrentUserSeller ? sessionOtherUserId.value : userId
+      if (isCurrentUserSeller && !buyerId) {
+        ElMessage.error('对方用户信息不可用，无法创建订单')
+        return
+      }
       const res = await createOrder({
         goodsId: info.goodsId,
         dealType: 0,
@@ -343,11 +360,17 @@ async function handleConfirmOrder() {
       sendSystemMsg('已确认自提交易，请线下完成交易后核销')
     } else if (info.action === 'delivery') {
       // 配送确认：创建订单 + 推送派单大厅
+      const isCurrentUserSeller = goodsInfo.value?.userId === userId
+      const buyerId = isCurrentUserSeller ? sessionOtherUserId.value : userId
+      if (isCurrentUserSeller && !buyerId) {
+        ElMessage.error('对方用户信息不可用，无法创建订单')
+        return
+      }
       const res = await createOrder({
         goodsId: info.goodsId,
         dealType: 1,
         deliveryFeePayer: info.deliveryFeePayer,
-        buyerId: info.initiatorId
+        buyerId
       })
       existingOrder.value = res.data
       await confirmDelivery(res.data.id, info.deliveryFeePayer)
@@ -375,42 +398,63 @@ function sendSystemMsg(content, extra) {
       extra: extra ? JSON.stringify(extra) : null
     }))
   }
+
+  // 乐观更新
+  messages.value.push({
+    id: Date.now(),
+    senderId: userId,
+    content,
+    msgType: 3,
+    extra: extra || null,
+    createTime: new Date().toISOString()
+  })
+  scrollToBottom()
 }
 
-// 检查消息中是否有对方发起的待确认交易请求
+// 从最新消息往前查找待确认的交易请求（包括自己发起的）
 function checkPendingOrder(msgs) {
   if (existingOrder.value) {
     pendingOrder.value = null
     return
   }
-  for (const msg of msgs) {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const msg = msgs[i]
     if (msg.msgType === 3 && msg.extra) {
       try {
         const extra = typeof msg.extra === 'string' ? JSON.parse(msg.extra) : msg.extra
-        // 只检测对方发起的请求（非自己发起）
         if ((extra?.action === 'self_pickup' || extra?.action === 'delivery')
-            && extra.initiatorId && extra.initiatorId !== userId) {
+            && extra.initiatorId) {
           pendingOrder.value = extra
           return
         }
       } catch { /* ignore */ }
     }
   }
-  // 没找到对方发起的请求
   pendingOrder.value = null
 }
 
 async function refreshOrderStatus() {
   if (!goodsInfo.value?.id) return
   try {
-    const ordersRes = await getMyOrders()
-    const activeOrder = (ordersRes.data || []).find(o =>
-      o.goodsId === goodsInfo.value.id && o.status !== 3 && o.status !== 4
-    )
+    // 同时查询买家和卖家订单，确保双方都能看到
+    const [buyerRes, sellerRes] = await Promise.all([
+      getMyOrders({ role: 'buyer', page: 1, size: 50 }),
+      getMyOrders({ role: 'seller', page: 1, size: 50 })
+    ])
+    const allOrders = [
+      ...(buyerRes.data?.records || []),
+      ...(sellerRes.data?.records || [])
+    ]
+    const orders = allOrders.filter(o => o.goodsId === goodsInfo.value.id)
+    const activeOrder = orders.find(o => o.status !== 3 && o.status !== 4)
     existingOrder.value = activeOrder || null
     // 订单已确认 → 清除待确认状态
     if (activeOrder) {
       pendingOrder.value = null
+    }
+    // 存在已完成的订单 → 隐藏快捷操作，显示"订单已完成"
+    if (orders.some(o => o.status === 3)) {
+      orderCompleted.value = true
     }
   } catch (e) { /* ignore */ }
 }
@@ -426,6 +470,7 @@ onMounted(async () => {
       const goodsRes = await getGoodsDetail(session.goodsId)
       goodsInfo.value = goodsRes.data
       otherNickname.value = session.otherNickname || '对方'
+      sessionOtherUserId.value = session.otherUserId
       await refreshOrderStatus()
     }
   } catch (e) { /* ignore */ }
@@ -445,6 +490,7 @@ onUnmounted(() => {
 
 .goods-card {
   margin: 12px 0;
+  border-radius: 12px;
 }
 
 .goods-brief {
@@ -454,29 +500,31 @@ onUnmounted(() => {
 }
 
 .goods-title {
-  font-weight: 500;
+  font-weight: 600;
   margin-bottom: 4px;
+  color: #1D2129;
 }
 
 .goods-price {
-  color: #f56c6c;
-  font-weight: bold;
+  color: #F56C6C;
+  font-weight: 700;
 }
 
 .img-placeholder {
   width: 60px;
   height: 60px;
-  background: #f5f7fa;
+  background: #F2F3F5;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c0c4cc;
+  color: #C9CDD4;
+  border-radius: 8px;
 }
 
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 16px;
 }
 
 .msg-item {
@@ -493,14 +541,15 @@ onUnmounted(() => {
 .bubble {
   max-width: 65%;
   padding: 10px 14px;
-  border-radius: 12px;
-  background: #f0f2f5;
+  border-radius: 16px;
+  background: #F2F3F5;
   line-height: 1.6;
+  color: #1D2129;
 }
 
 .msg-item.self .bubble {
-  background: #409eff;
-  color: white;
+  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  color: #fff;
 }
 
 .msg-content-wrapper {
@@ -522,27 +571,27 @@ onUnmounted(() => {
 }
 
 .msg-time {
-  color: #c0c4cc;
+  color: #C9CDD4;
 }
 
 .read-status .read {
-  color: #67c23a;
+  color: #52C41A;
 }
 
 .read-status .unread {
-  color: #c0c4cc;
+  color: #C9CDD4;
 }
 
 .new-badge {
-  background: #409eff;
+  background: #5B8FF9;
   color: #fff;
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: 999px;
 }
 
 .unread-bubble {
-  border: 2px solid #409eff;
+  border: 2px solid #5B8FF9;
 }
 
 .system-msg {
@@ -558,14 +607,14 @@ onUnmounted(() => {
 .quick-actions {
   display: flex;
   gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
+  padding: 10px 12px;
+  border-top: 1px solid #F2F3F5;
+  background: #F7F8FA;
 }
 
 .input-area {
   padding: 12px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid #F2F3F5;
 }
 
 .input-toolbar {
@@ -576,12 +625,19 @@ onUnmounted(() => {
 
 .toolbar-icon {
   cursor: pointer;
-  color: #606266;
+  color: #4E5969;
   transition: color 0.2s;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
 }
 
 .toolbar-icon:hover {
-  color: #409eff;
+  color: #5B8FF9;
+  background: #E8EEFE;
 }
 
 .input-row {

@@ -60,6 +60,16 @@ public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> i
                 .eq(Favorite::getUserId, userId).orderByDesc(Favorite::getCreateTime));
         List<Long> goodsIds = favs.stream().map(Favorite::getGoodsId).collect(Collectors.toList());
         if (goodsIds.isEmpty()) return List.of();
-        return goodsMapper.selectBatchIds(goodsIds);
+        // 只返回在售商品，过滤已下架/已售出
+        List<Goods> goods = goodsMapper.selectBatchIds(goodsIds).stream()
+                .filter(g -> g.getStatus() != null && g.getStatus() == 0)
+                .collect(Collectors.toList());
+        // 按收藏顺序排序（selectBatchIds 不保证顺序）
+        java.util.Map<Long, Goods> goodsMap = goods.stream()
+                .collect(Collectors.toMap(Goods::getId, g -> g));
+        return goodsIds.stream()
+                .map(goodsMap::get)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
     }
 }

@@ -10,7 +10,10 @@
         <el-icon :size="20" :color="typeColor(n.type)">
           <Bell v-if="n.type === 'system'" />
           <Goods v-else-if="n.type === 'order_status'" />
-          <ChatDotRound v-else />
+          <ChatDotRound v-else-if="n.type === 'new_message'" />
+          <Notebook v-else-if="n.type?.startsWith('forum_')" />
+          <Warning v-else-if="n.type?.startsWith('report_') || n.type?.startsWith('dispute_')" />
+          <Bell v-else />
         </el-icon>
       </div>
       <div class="notif-body">
@@ -25,12 +28,18 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { Bell, Goods, ChatDotRound, Notebook, Warning } from '@element-plus/icons-vue'
 import { getNotifications, markRead, markAllRead } from '@/api/notification'
 
+const router = useRouter()
 const list = ref([])
 
 const typeColor = (t) => ({
-  system: '#409eff', order_status: '#67c23a', new_message: '#e6a23c'
+  system: '#409eff', order_status: '#67c23a', new_message: '#e6a23c',
+  forum_comment: '#409eff', forum_reply: '#67c23a', forum_like: '#e6a23c',
+  report_handled: '#52C41A', report_rejected: '#F56C6C',
+  dispute_resolved: '#52C41A', dispute_rejected: '#F56C6C'
 }[t] || '#909399')
 
 async function loadData() {
@@ -43,6 +52,24 @@ async function handleRead(n) {
     await markRead(n.id)
     n.isRead = 1
   }
+  // 论坛通知跳转到帖子详情
+  if (n.type?.startsWith('forum_') && n.extra) {
+    try {
+      const extra = JSON.parse(n.extra)
+      if (extra.postId) router.push(`/forum/${extra.postId}`)
+    } catch { /* ignore */ }
+  }
+  // 纠纷通知跳转到订单详情
+  if (n.type?.startsWith('dispute_') && n.extra) {
+    try {
+      const extra = JSON.parse(n.extra)
+      if (extra.orderId) router.push(`/orders/${extra.orderId}`)
+    } catch { /* ignore */ }
+  }
+  // 举报通知跳转到我的举报
+  if (n.type?.startsWith('report_')) {
+    router.push('/my-reports')
+  }
 }
 
 async function handleMarkAllRead() {
@@ -54,12 +81,56 @@ onMounted(loadData)
 </script>
 
 <style scoped>
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.notif-item { display: flex; gap: 12px; padding: 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
-.notif-item.unread { background: #ecf5ff; }
-.notif-icon { width: 36px; height: 36px; border-radius: 50%; background: #f0f2f5; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1D2129;
+  margin: 0;
+}
+
+.notif-item {
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+  border-bottom: 1px solid #F2F3F5;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background 0.2s;
+  margin: 0 4px;
+}
+
+.notif-item:hover {
+  background: #F7F8FA;
+}
+
+.notif-item.unread {
+  background: #E8EEFE;
+}
+
+.notif-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #F2F3F5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.notif-item.unread .notif-icon {
+  background: #C8D9FC;
+}
+
 .notif-body { flex: 1; }
-.notif-title { font-weight: 500; margin-bottom: 4px; }
-.notif-content { font-size: 13px; color: #606266; margin-bottom: 4px; }
-.notif-time { font-size: 12px; color: #c0c4cc; }
+.notif-title { font-weight: 600; margin-bottom: 4px; color: #1D2129; }
+.notif-content { font-size: 13px; color: #4E5969; margin-bottom: 4px; }
+.notif-time { font-size: 12px; color: #C9CDD4; }
 </style>

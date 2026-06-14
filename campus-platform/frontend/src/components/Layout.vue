@@ -1,7 +1,10 @@
 <template>
   <el-container class="layout-container">
     <el-header class="header">
-      <div class="logo" @click="router.push('/')">校园生态平台</div>
+      <div class="logo" @click="router.push('/')">
+        <span class="logo-icon">🎓</span>
+        <span class="logo-text">校园生态平台</span>
+      </div>
       <el-menu
         :default-active="activeMenu"
         mode="horizontal"
@@ -39,21 +42,28 @@
         </el-menu-item>
       </el-menu>
       <div class="user-area">
-        <el-badge v-if="notifCount > 0" :value="notifCount" :max="99" class="notif-badge">
-          <el-icon :size="20" style="cursor: pointer" @click="router.push('/notifications')"><Bell /></el-icon>
-        </el-badge>
-        <el-icon v-else :size="20" style="cursor: pointer; color: #606266" @click="router.push('/notifications')"><Bell /></el-icon>
-        <el-dropdown v-if="userStore.userInfo" style="margin-left: 16px">
-          <span class="user-name">
-            {{ userStore.userInfo.nickname || userStore.userInfo.username }}
-            <el-icon><ArrowDown /></el-icon>
-          </span>
+        <div class="notif-btn" @click="router.push('/notifications')">
+          <el-badge v-if="notifCount > 0" :value="notifCount" :max="99">
+            <el-icon :size="18"><Bell /></el-icon>
+          </el-badge>
+          <el-icon v-else :size="18"><Bell /></el-icon>
+        </div>
+        <el-dropdown v-if="userStore.userInfo" class="user-dropdown">
+          <div class="user-avatar-wrap">
+            <el-avatar :size="32" class="user-avatar">
+              {{ (userStore.userInfo.nickname || userStore.userInfo.username || 'U').charAt(0) }}
+            </el-avatar>
+            <span class="user-name">{{ userStore.userInfo.nickname || userStore.userInfo.username }}</span>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </div>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="router.push('/profile')">个人中心</el-dropdown-item>
               <el-dropdown-item @click="router.push('/my-goods')">我的商品</el-dropdown-item>
               <el-dropdown-item @click="router.push('/favorites')">我的收藏</el-dropdown-item>
               <el-dropdown-item @click="router.push('/orders')">我的订单</el-dropdown-item>
+              <el-dropdown-item @click="router.push('/my-reports')">我的举报</el-dropdown-item>
+              <el-dropdown-item @click="router.push('/my-disputes')">我的纠纷</el-dropdown-item>
               <el-dropdown-item @click="router.push('/address')">收货地址</el-dropdown-item>
               <el-dropdown-item @click="router.push('/admin')" v-if="userStore.userInfo.role === 1">管理后台</el-dropdown-item>
               <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
@@ -66,9 +76,11 @@
       <router-view />
     </el-main>
   </el-container>
+  <MobileTabBar class="mobile-only" />
 </template>
 
 <script setup>
+import MobileTabBar from '@/components/MobileTabBar.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -134,49 +146,172 @@ async function handleLogout() {
 .header {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #e4e7ed;
-  padding: 0 20px;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .logo {
-  font-size: 20px;
-  font-weight: bold;
-  color: #409eff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
-  margin-right: 40px;
+  margin-right: 36px;
   white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.logo-icon {
+  font-size: 26px;
+}
+
+.logo-text {
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .nav-menu {
   flex: 1;
   border-bottom: none;
+  background: transparent;
+}
+
+.nav-menu .el-menu-item {
+  font-size: 14px;
+  font-weight: 500;
+  color: #4E5969;
+  border-bottom: 2px solid transparent;
+  transition: color 0.25s, border-color 0.25s;
+}
+
+.nav-menu .el-menu-item:hover {
+  color: #5B8FF9;
+  background: transparent;
+}
+
+.nav-menu .el-menu-item.is-active {
+  color: #5B8FF9;
+  border-bottom-color: #5B8FF9;
+  background: transparent;
 }
 
 .msg-badge {
   position: absolute;
-  top: -4px;
-  right: -8px;
-}
-
-.el-menu-item {
-  position: relative;
+  top: 2px;
+  right: -4px;
 }
 
 .user-area {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.notif-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #4E5969;
+  transition: background 0.2s, color 0.2s;
+}
+
+.notif-btn:hover {
+  background: #F2F3F5;
+  color: #5B8FF9;
+}
+
+.user-dropdown {
+  outline: none;
+}
+
+.user-avatar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.user-avatar-wrap:hover {
+  background: #F2F3F5;
+}
+
+.user-avatar {
+  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .user-name {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  color: #606266;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1D2129;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrow-icon {
+  font-size: 12px;
+  color: #86909C;
+  transition: transform 0.2s;
 }
 
 .main-content {
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
-  padding: 16px;
+  padding: 20px;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+  }
+
+  .logo {
+    margin-right: 16px;
+  }
+
+  .logo-text {
+    font-size: 15px;
+  }
+
+  .nav-menu {
+    display: none;
+  }
+
+  .main-content {
+    padding: 12px;
+    padding-bottom: 70px;
+  }
+
+  .mobile-only {
+    display: block;
+  }
 }
 </style>

@@ -4,8 +4,11 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.common.entity.BanRecord;
+import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
 import com.campus.common.service.BanService;
+import com.campus.user.entity.User;
+import com.campus.user.mapper.UserMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -24,13 +27,24 @@ import java.util.Map;
 public class AdminBanController {
 
     private final BanService banService;
+    private final UserMapper userMapper;
 
     /**
      * 封禁用户
      */
     @PostMapping("/user")
     public R<Void> banUser(@Valid @RequestBody BanUserReq req) {
-        banService.banUser(req.userId, req.banType, req.reason, req.days, StpUtil.getLoginIdAsLong());
+        // 不能封禁管理员
+        User targetUser = userMapper.selectById(req.userId);
+        if (targetUser != null && targetUser.getRole() == 1) {
+            throw new BusinessException("不能封禁管理员用户");
+        }
+        // 不能封禁自己
+        Long currentUserId = StpUtil.getLoginIdAsLong();
+        if (req.userId.equals(currentUserId)) {
+            throw new BusinessException("不能封禁自己");
+        }
+        banService.banUser(req.userId, req.banType, req.reason, req.days, currentUserId);
         return R.ok();
     }
 

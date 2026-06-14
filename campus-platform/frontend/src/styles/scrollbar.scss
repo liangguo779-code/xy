@@ -1,0 +1,27 @@
+// ============================================
+// Scrollbar - 自定义滚动条
+// ============================================
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C9CDD4;
+  border-radius: 3px;
+
+  &:hover {
+    background: #86909C;
+  }
+}
+
+// Firefox
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #C9CDD4 transparent;
+}

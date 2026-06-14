@@ -5,14 +5,17 @@
       <div class="back-btn" @click="router.back()">
         <el-icon :size="20"><ArrowLeft /></el-icon>
       </div>
-      <el-carousel v-if="imageList.length" height="360px" :autoplay="false" indicator-position="none">
+      <el-carousel v-if="imageList.length" height="360px" :autoplay="false" indicator-position="none"
+                   @change="idx => currentIndex = idx">
         <el-carousel-item v-for="(img, i) in imageList" :key="i">
           <el-image :src="img" fit="contain" style="width: 100%; height: 360px; background: #000" />
         </el-carousel-item>
       </el-carousel>
       <div v-else class="no-media">暂无图片</div>
-      <!-- 图片计数 -->
       <div class="media-count" v-if="imageList.length">{{ currentIndex + 1 }}/{{ imageList.length }}</div>
+      <!-- 视频播放 -->
+      <video v-if="goods.videoUrl" :src="goods.videoUrl" controls
+             style="width: 100%; max-height: 360px; background: #000" />
     </div>
 
     <!-- 价格区 -->
@@ -26,6 +29,9 @@
         <el-tag v-if="goods.condition" size="small" type="info">{{ goods.condition }}</el-tag>
         <el-tag v-if="goods.type === 1" size="small" type="warning">求购</el-tag>
         <el-tag v-if="goods.status === 2" size="small" type="danger">已售出</el-tag>
+        <el-tag v-if="priceChange" size="small" :type="priceChange < 0 ? 'success' : 'warning'">
+          {{ priceChange < 0 ? '降' : '涨' }}了 ¥{{ Math.abs(priceChange) }}
+        </el-tag>
       </div>
       <div class="stats">
         <span>{{ goods.viewCount || 0 }}浏览</span>
@@ -45,12 +51,15 @@
     </div>
 
     <!-- 卖家信息 -->
-    <div class="seller-section">
+    <div class="seller-section" @click="router.push(`/seller/${goods.userId}`)" style="cursor: pointer">
       <div class="seller-info">
         <el-avatar :size="40">{{ goods.userId?.toString().slice(-1) }}</el-avatar>
         <div class="seller-detail">
           <div class="seller-name">卖家 #{{ goods.userId }}</div>
-          <div class="seller-tag">校园认证用户</div>
+          <div class="seller-tag">
+            <el-rate v-if="sellerRating" :model-value="sellerRating" disabled size="small" style="display: inline-flex" />
+            <span v-if="sellerReviewCount"> {{ sellerPositiveRate }}%好评</span>
+          </div>
         </div>
       </div>
       <div class="seller-actions">
@@ -104,9 +113,13 @@
           <el-icon :size="20"><Share /></el-icon>
           <span>分享</span>
         </div>
+        <div v-if="!isOwner" class="bar-item" @click="showReport = true">
+          <el-icon :size="20"><Warning /></el-icon>
+          <span>举报</span>
+        </div>
       </div>
       <div class="bar-right">
-        <el-button v-if="!isOwner" size="large" @click="handleWant" :loading="wanting">
+        <el-button v-if="!isOwner" size="large" @click="handleChat" :loading="wanting">
           <el-icon><ChatDotRound /></el-icon> 私聊沟通
         </el-button>
         <el-button v-if="!isOwner" type="danger" size="large" @click="handleWant" :loading="wanting">
@@ -165,6 +178,42 @@
         <el-button type="danger" @click="handleDelist">确认下架</el-button>
       </template>
     </el-dialog>
+
+    <!-- 举报弹窗 -->
+    <el-dialog v-model="showReport" title="举报商品" width="420">
+      <el-form label-width="70px">
+        <el-form-item label="举报原因">
+          <el-radio-group v-model="reportForm.reason">
+            <el-radio value="虚假商品">虚假商品</el-radio>
+            <el-radio value="违禁品">违禁品</el-radio>
+            <el-radio value="欺诈">欺诈</el-radio>
+            <el-radio value="其他">其他</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="补充说明">
+          <el-input v-model="reportForm.evidence" type="textarea" :rows="2" placeholder="补充说明（选填）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showReport = false">取消</el-button>
+        <el-button type="warning" @click="handleSubmitReport" :loading="reporting">提交举报</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 相似商品 -->
+    <div v-if="similarGoods.length" class="similar-section">
+      <div class="section-title">相似商品</div>
+      <div class="similar-scroll">
+        <div v-for="item in similarGoods" :key="item.id" class="similar-card"
+             @click="router.push(`/goods/${item.id}`)">
+          <el-image :src="getFirstImage(item)" fit="cover" class="similar-img">
+            <template #error><div class="similar-placeholder">图</div></template>
+          </el-image>
+          <div class="similar-title">{{ item.title }}</div>
+          <div class="similar-price">¥{{ item.price }}</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -172,12 +221,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getGoodsDetail, markAsSold, deleteGoods } from '@/api/goods'
+import { getGoodsDetail, getRecommendGoods, markAsSold, deleteGoods } from '@/api/goods'
 import { startSession } from '@/api/chat'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, Warning } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { addFavorite, removeFavorite, checkFavorite } from '@/api/favorite'
 import { followUser, unfollowUser, checkFollow } from '@/api/follow'
+import { createReport } from '@/api/report'
 
 const route = useRoute()
 const router = useRouter()
@@ -192,10 +242,25 @@ const currentIndex = ref(0)
 const sellerReviews = ref([])
 const sellerRating = ref(0)
 const sellerReviewCount = ref(0)
+const sellerPositiveRate = ref(0)
+const showReport = ref(false)
+const reporting = ref(false)
+const reportForm = ref({ reason: '虚假商品', evidence: '' })
+const similarGoods = ref([])
 
 const isOwner = computed(() => {
   const userId = Number(localStorage.getItem('userId') || 0)
   return goods.value?.userId === userId
+})
+
+const priceChange = computed(() => {
+  if (!goods.value?.priceHistory) return null
+  try {
+    const history = JSON.parse(goods.value.priceHistory)
+    if (history.length === 0) return null
+    const lastPrice = history[history.length - 1].price
+    return goods.value.price - lastPrice
+  } catch { return null }
 })
 
 const imageList = computed(() => {
@@ -221,17 +286,28 @@ function parseTags(tags) {
 
 async function fetchSellerReviews(userId) {
   try {
-    const res = await request.get(`/api/reviews/user/${userId}`)
-    sellerReviews.value = (res.data || []).slice(0, 5)
-    sellerReviewCount.value = (res.data || []).length
-    if (sellerReviewCount.value > 0) {
-      const sum = sellerReviews.value.reduce((acc, r) => acc + r.rating, 0)
-      sellerRating.value = sum / sellerReviews.value.length
-    }
+    const [reviewsRes, statsRes] = await Promise.all([
+      request.get(`/api/reviews/user/${userId}`),
+      request.get(`/api/reviews/user/${userId}/stats`)
+    ])
+    sellerReviews.value = (reviewsRes.data || []).slice(0, 5)
+    sellerRating.value = statsRes.data?.averageRating || 0
+    sellerReviewCount.value = statsRes.data?.reviewCount || 0
+    sellerPositiveRate.value = statsRes.data?.positiveRate || 0
   } catch (e) { /* ignore */ }
 }
 
 async function handleWant() {
+  wanting.value = true
+  try {
+    const res = await startSession(goods.value.id)
+    router.push(`/chat/${res.data.id}`)
+  } finally {
+    wanting.value = false
+  }
+}
+
+async function handleChat() {
   wanting.value = true
   try {
     const res = await startSession(goods.value.id)
@@ -278,6 +354,36 @@ function handleShare() {
   }
 }
 
+async function handleSubmitReport() {
+  reporting.value = true
+  try {
+    await createReport({
+      targetType: 'goods',
+      targetId: goods.value.id,
+      reason: reportForm.value.reason,
+      evidence: reportForm.value.evidence || ''
+    })
+    ElMessage.success('举报已提交')
+    reportForm.value = { reason: '虚假商品', evidence: '' }
+    showReport.value = false
+  } catch { ElMessage.error('举报失败') }
+  finally { reporting.value = false }
+}
+
+function getFirstImage(item) {
+  try {
+    const imgs = typeof item.images === 'string' ? JSON.parse(item.images) : item.images
+    return imgs?.[0] || ''
+  } catch { return '' }
+}
+
+async function loadSimilar() {
+  try {
+    const res = await getRecommendGoods({ page: 1, size: 6 })
+    similarGoods.value = (res.data?.records || []).filter(g => g.id !== goods.value?.id).slice(0, 5)
+  } catch { /* ignore */ }
+}
+
 async function handleDelist() {
   try {
     await deleteGoods(goods.value.id)
@@ -319,6 +425,8 @@ onMounted(async () => {
   } catch (e) { /* ignore */ }
   // 获取卖家评价
   fetchSellerReviews(goods.value.userId)
+  // 加载相似商品
+  loadSimilar()
 })
 </script>
 
@@ -570,5 +678,65 @@ onMounted(async () => {
 .bar-right {
   display: flex;
   gap: 8px;
+}
+
+.similar-section {
+  background: #fff;
+  padding: 16px;
+  margin-top: 8px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1D2129;
+  margin-bottom: 12px;
+}
+
+.similar-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.similar-card {
+  flex-shrink: 0;
+  width: 130px;
+  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #F7F8FA;
+  transition: transform 0.25s;
+}
+
+.similar-card:hover { transform: translateY(-2px); }
+
+.similar-img { width: 130px; height: 130px; }
+
+.similar-placeholder {
+  width: 130px;
+  height: 130px;
+  background: #F2F3F5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #C9CDD4;
+}
+
+.similar-title {
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  color: #1D2129;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.similar-price {
+  padding: 0 8px 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #F56C6C;
 }
 </style>

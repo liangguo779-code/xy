@@ -5,6 +5,7 @@ import lombok.Getter;
 @Getter
 public enum DeliveryStatus {
 
+    CANCELLED(-1, "已取消"),
     PENDING(0, "待接单"),
     ACCEPTED(1, "已接单/待取货"),
     PICKED_UP(2, "已取货/配送中"),
