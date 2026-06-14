@@ -53,8 +53,12 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
     @Transactional
     public ChatSessionVO startSession(Long buyerId, Long goodsId) {
         Goods goods = goodsMapper.selectById(goodsId);
-        if (goods == null || goods.getStatus() != 0) {
-            throw new BusinessException("商品不存在或已下架");
+        if (goods == null) {
+            throw new BusinessException("商品不存在");
+        }
+        // 允许在售(0)和已售出(2)的商品创建会话，已下架(1)不允许
+        if (goods.getStatus() == 1) {
+            throw new BusinessException("商品已下架");
         }
         if (goods.getUserId().equals(buyerId)) {
             throw new BusinessException("不能和自己聊天");
