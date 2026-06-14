@@ -26,7 +26,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="reporterId" label="举报人" width="80" />
-        <el-table-column prop="reason" label="举报原因" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="reason" label="举报原因" min-width="150" show-overflow-tooltip />
+        <el-table-column label="补充说明" min-width="200">
+          <template #default="{ row }">
+            <span v-if="row.evidence">{{ row.evidence }}</span>
+            <span v-else style="color: #c0c4cc">无</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="['warning','success','danger'][row.status]" size="small">
