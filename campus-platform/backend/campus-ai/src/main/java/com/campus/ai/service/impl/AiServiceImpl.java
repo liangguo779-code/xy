@@ -145,6 +145,26 @@ public class AiServiceImpl implements AiService {
 
     @Override
     @SuppressWarnings("unchecked")
+    public Map<String, Object> getRebuildStatus() {
+        try {
+            ResponseEntity<Map> resp = restTemplate.getForEntity(
+                    aiServiceUrl + "/knowledge/rebuild/status",
+                    Map.class
+            );
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                return resp.getBody();
+            }
+            throw new BusinessException("AI 服务返回异常");
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("查询重建状态失败", e);
+            throw new BusinessException("AI 服务暂时不可用");
+        }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getPendingList() {
         try {
             ResponseEntity<Map> resp = restTemplate.getForEntity(

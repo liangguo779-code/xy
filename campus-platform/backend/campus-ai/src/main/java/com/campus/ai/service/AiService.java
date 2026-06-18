@@ -16,6 +16,8 @@ public interface AiService {
 
     Map<String, Object> rebuildKnowledge();
 
+    Map<String, Object> getRebuildStatus();
+
     Map<String, Object> getPendingList();
 
     Map<String, Object> confirmKnowledge(String filename);

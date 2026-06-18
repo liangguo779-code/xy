@@ -84,3 +84,7 @@ export function deleteKnowledge(filename) {
 export function rebuildKnowledge() {
   return request.post('/api/admin/knowledge/rebuild')
 }
+
+export function getRebuildStatus() {
+  return request.get('/api/admin/knowledge/rebuild/status')
+}

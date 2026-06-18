@@ -80,7 +80,8 @@ import { ref, onMounted } from 'vue'
 import { marked } from 'marked'
 import {
   getKnowledgeList, uploadKnowledge, getKnowledgeContent,
-  updateKnowledgeContent, toggleKnowledge, deleteKnowledge, rebuildKnowledge
+  updateKnowledgeContent, toggleKnowledge, deleteKnowledge,
+  rebuildKnowledge, getRebuildStatus
 } from '@/api/admin'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -188,11 +189,36 @@ async function handleRebuild() {
   rebuilding.value = true
   try {
     const res = await rebuildKnowledge()
-    ElMessage.success(res.message || '重建完成')
-    loadList()
+    if (res.status === 'running') {
+      ElMessage.warning('重建正在进行中')
+      rebuilding.value = false
+      return
+    }
+    ElMessage.info(res.message || '开始重建...')
+
+    // 轮询状态直到完成
+    const poll = setInterval(async () => {
+      try {
+        const statusRes = await getRebuildStatus()
+        if (statusRes.completed) {
+          clearInterval(poll)
+          rebuilding.value = false
+          if (statusRes.error) {
+            ElMessage.error('重建失败: ' + statusRes.error)
+          } else {
+            ElMessage.success(`重建完成: ${statusRes.result?.docs || 0} 个文档, ${statusRes.result?.chunks || 0} 个 chunk`)
+          }
+          loadList()
+        } else {
+          // 可以在这里更新进度提示
+          console.log('重建进度:', statusRes.progress)
+        }
+      } catch {
+        clearInterval(poll)
+        rebuilding.value = false
+      }
+    }, 2000)
   } catch (e) {
-    // handled
-  } finally {
     rebuilding.value = false
   }
 }

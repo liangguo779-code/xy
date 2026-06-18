@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
@@ -12,6 +13,15 @@ from rag.bm25 import rebuild_bm25
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# 重建状态跟踪
+_rebuild_status = {
+    "running": False,
+    "progress": "",
+    "completed": False,
+    "result": None,
+    "error": None,
+}
 
 KNOWLEDGE_DIR = os.getenv("KNOWLEDGE_DIR", "./knowledge")
 MD_SUFFIXES = {".md"}
@@ -61,13 +71,16 @@ def _index_md_file(safe_name: str):
 
 def _rebuild_all():
     """后台任务：重建整个索引"""
+    global _rebuild_status
+    _rebuild_status.update(running=True, completed=False, progress="正在加载文档...", error=None)
     try:
         docs = load_documents(KNOWLEDGE_DIR)
         if not docs:
+            _rebuild_status.update(running=False, completed=True, progress="知识库为空，跳过重建", result={"docs": 0, "chunks": 0})
             logger.warning("知识库为空，跳过重建")
             return
 
-        # BUG 7+12 修复: 安全地删除集合
+        _rebuild_status["progress"] = "正在清空旧索引..."
         try:
             vectorstore = get_vectorstore()
             vectorstore._collection.delete(where={})
@@ -75,11 +88,19 @@ def _rebuild_all():
             logger.warning("清空集合失败: %s", e)
         reset_vectorstore()
 
+        _rebuild_status["progress"] = f"正在切分文档 ({len(docs)} 个)..."
         chunks = split_documents(docs)
+
+        _rebuild_status["progress"] = f"正在写入向量库 ({len(chunks)} 个 chunk)..."
         count = add_documents(chunks)
+
+        _rebuild_status["progress"] = "正在重建 BM25 索引..."
         rebuild_bm25()
+
+        _rebuild_status.update(running=False, completed=True, progress="重建完成", result={"docs": len(docs), "chunks": count})
         logger.info("知识库重建完成: %d 个文档, %d 个 chunk", len(docs), count)
     except Exception as e:
+        _rebuild_status.update(running=False, completed=True, progress="重建失败", error=str(e))
         logger.error("知识库重建失败: %s", e)
 
 
@@ -205,5 +226,13 @@ async def delete_document(filename: str):
 @router.post("/knowledge/rebuild")
 async def rebuild_knowledge(background_tasks: BackgroundTasks = None):
     """重建整个知识库向量索引（异步）"""
+    if _rebuild_status["running"]:
+        return {"message": "重建正在进行中，请稍后", "status": "running"}
     background_tasks.add_task(_rebuild_all)
     return {"message": "正在后台重建索引...", "status": "processing"}
+
+
+@router.get("/knowledge/rebuild/status")
+async def rebuild_status():
+    """查询重建状态"""
+    return _rebuild_status

@@ -52,4 +52,9 @@ public class AdminKnowledgeController {
     public R<Map<String, Object>> rebuild() {
         return R.ok(aiService.rebuildKnowledge());
     }
+
+    @GetMapping("/rebuild/status")
+    public R<Map<String, Object>> rebuildStatus() {
+        return R.ok(aiService.getRebuildStatus());
+    }
 }
