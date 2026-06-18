@@ -33,11 +33,11 @@
               <div v-if="msg.role === 'user'" class="text">{{ msg.content }}</div>
               <div v-else class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
 
-              <div v-if="parseSources(msg.sources)?.length" class="sources-section">
+              <div v-if="msg.sources?.length" class="sources-section">
                 <el-divider content-position="left">
-                  <el-icon><Document /></el-icon> 参考来源 ({{ parseSources(msg.sources).length }}条)
+                  <el-icon><Document /></el-icon> 参考来源 ({{ msg.sources.length }}条)
                 </el-divider>
-                <div v-for="(s, j) in parseSources(msg.sources)" :key="j" class="source-item">
+                <div v-for="(s, j) in msg.sources" :key="j" class="source-item">
                   <div class="source-header" @click="s.expanded = !s.expanded">
                     <el-tag type="info" size="small">来源{{ s.index || j + 1 }}</el-tag>
                     <span class="source-name">《{{ s.source }}》</span>
@@ -63,6 +63,16 @@
           </div>
         </div>
 
+        <!-- 推荐问题（空会话时显示） -->
+        <div v-if="messages.length === 0" class="suggested-questions">
+          <div class="suggested-title">你可以问我：</div>
+          <div class="suggested-list">
+            <div v-for="q in suggestedQuestions" :key="q" class="suggested-item" @click="handleSuggested(q)">
+              {{ q }}
+            </div>
+          </div>
+        </div>
+
         <div class="input-area">
           <el-input v-model="input" placeholder="输入你的问题，例如：挂科怎么重修？"
                     @keyup.enter="handleSend" :disabled="loading" size="large">
@@ -77,10 +87,10 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, reactive, nextTick, onMounted } from 'vue'
 import { User, MagicStick, Loading, Document, ArrowDown, Plus, Delete } from '@element-plus/icons-vue'
 import { marked } from 'marked'
-import { chat, getSessions, getSessionMessages, deleteSession as deleteSessionApi } from '@/api/ai'
+import { chat, chatStream, getSessions, getSessionMessages, deleteSession as deleteSessionApi } from '@/api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const input = ref('')
@@ -89,6 +99,18 @@ const messages = ref([])
 const messagesRef = ref()
 const sessions = ref([])
 const currentSessionId = ref(null)
+
+const suggestedQuestions = [
+  '休学怎么办理？',
+  '奖学金怎么申请？',
+  '挂科了怎么重修？',
+  '校园卡丢了怎么补办？',
+]
+
+function handleSuggested(question) {
+  input.value = question
+  handleSend()
+}
 
 function renderMarkdown(text) {
   if (!text) return ''
@@ -125,7 +147,7 @@ async function loadSession(sessionId) {
     messages.value = (res.data || []).map(m => ({
       role: m.role,
       content: m.content,
-      sources: parseSources(m.sources)
+      sources: parseSources(m.sources).map(s => reactive({ ...s, expanded: false }))
     }))
     scrollToBottom()
   } catch (e) { /* ignore */ }
@@ -158,26 +180,29 @@ async function handleSend() {
   loading.value = true
   scrollToBottom()
 
+  // 先添加一个空的 assistant 消息，后续逐 token 填充
+  const assistantMsg = reactive({ role: 'assistant', content: '', sources: [] })
+  messages.value.push(assistantMsg)
+
   try {
-    const res = await chat({ question, sessionId: currentSessionId.value })
-    const data = res.data
-
-    // 更新 sessionId
-    if (data.sessionId && !currentSessionId.value) {
-      currentSessionId.value = data.sessionId
-      loadSessions()
-    }
-
-    messages.value.push({
-      role: 'assistant',
-      content: data.answer,
-      sources: parseSources(data.sources)
-    })
+    await chatStream(
+      { question, sessionId: currentSessionId.value },
+      // onToken: 逐 token 追加内容
+      (token) => {
+        assistantMsg.content += token
+        scrollToBottom()
+      },
+      // onSources: 接收来源列表
+      (sources) => {
+        assistantMsg.sources = parseSources(sources).map(s => reactive({ ...s, expanded: false }))
+      },
+      // onDone: 流结束
+      () => {
+        // 流结束
+      }
+    )
   } catch (e) {
-    messages.value.push({
-      role: 'assistant',
-      content: '抱歉，暂时无法回答您的问题，请稍后重试。'
-    })
+    assistantMsg.content = '抱歉，暂时无法回答您的问题，请稍后重试。'
   } finally {
     loading.value = false
     scrollToBottom()
@@ -348,4 +373,19 @@ onMounted(loadSessions)
 .content-text { font-size: 13px; color: #606266; line-height: 1.8; white-space: pre-wrap; background: #f9f9f9; padding: 12px; border-radius: 6px; max-height: 300px; overflow-y: auto; }
 
 .input-area { padding: 16px; border-top: 1px solid #ebeef5; }
+
+/* 推荐问题 */
+.suggested-questions { padding: 16px; }
+.suggested-title { font-size: 14px; color: #909399; margin-bottom: 12px; }
+.suggested-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.suggested-item {
+  padding: 8px 16px;
+  background: #f0f2f5;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #303133;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.suggested-item:hover { background: #d9ecff; color: #409eff; }
 </style>

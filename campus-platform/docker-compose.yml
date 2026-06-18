@@ -20,6 +20,23 @@ services:
       timeout: 5s
       retries: 5
 
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: campus-nacos
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: ""
+      JVM_XMS: 256m
+      JVM_XMX: 256m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     container_name: campus-redis
@@ -34,7 +51,7 @@ services:
       retries: 5
 
   elasticsearch:
-    image: elasticsearch:8.12.0
+    image: elasticsearch-ik:8.12.0
     container_name: campus-es
     environment:
       - discovery.type=single-node
@@ -51,6 +68,138 @@ services:
       timeout: 10s
       retries: 5
 
+  # ==================== Java 微服务 ====================
+
+  # Gateway 网关
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: campus-gateway/Dockerfile
+    container_name: campus-gateway
+    ports:
+      - "9000:9000"
+    environment:
+      NACOS_ADDR: nacos:8848
+    depends_on:
+      - nacos
+
+  # 用户服务
+  campus-user:
+    build:
+      context: ./backend
+      dockerfile: campus-user/Dockerfile
+    container_name: campus-user
+    ports:
+      - "8081:8081"
+    environment:
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: 123456
+      REDIS_HOST: redis
+      REDIS_PASSWORD: 123456
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+
+  # 交易服务
+  campus-trade:
+    build:
+      context: ./backend
+      dockerfile: campus-trade/Dockerfile
+    container_name: campus-trade
+    ports:
+      - "8082:8082"
+    environment:
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: 123456
+      REDIS_HOST: redis
+      REDIS_PASSWORD: 123456
+      ELASTICSEARCH_HOST: elasticsearch
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  # 论坛服务
+  campus-forum:
+    build:
+      context: ./backend
+      dockerfile: campus-forum/Dockerfile
+    container_name: campus-forum
+    ports:
+      - "8083:8083"
+    environment:
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: 123456
+      REDIS_HOST: redis
+      REDIS_PASSWORD: 123456
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+
+  # AI咨询服务
+  campus-ai-consult:
+    build:
+      context: ./backend
+      dockerfile: campus-ai/Dockerfile
+    container_name: campus-ai-consult
+    ports:
+      - "8084:8084"
+    environment:
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: 123456
+      REDIS_HOST: redis
+      REDIS_PASSWORD: 123456
+      AI_SERVICE_URL: http://ai-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+
+  # 管理服务
+  campus-admin:
+    build:
+      context: ./backend
+      dockerfile: campus-admin/Dockerfile
+    container_name: campus-admin
+    ports:
+      - "8085:8085"
+    environment:
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: 123456
+      REDIS_HOST: redis
+      REDIS_PASSWORD: 123456
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+
+  # ==================== Nginx ====================
   nginx:
     image: nginx:alpine
     container_name: campus-nginx
@@ -60,26 +209,7 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
       - ./frontend/dist:/usr/share/nginx/html
     depends_on:
-      - backend
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: campus-backend
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/campus?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
-      SPRING_DATASOURCE_PASSWORD: 123456
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PASSWORD: 123456
-      AI_SERVICE_URL: http://ai-service:8000
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - gateway
 
   ai-service:
     build:

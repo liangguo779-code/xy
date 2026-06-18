@@ -1,22 +1,27 @@
 server:
-  port: 8080
+  port: 8085
 
 spring:
   application:
-    name: campus-platform
+    name: campus-admin-service
+
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
 
   datasource:
-    url: jdbc:mysql://localhost:3306/campus?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/campus?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: 123456
+    password: ${MYSQL_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   data:
     redis:
-      host: localhost
+      host: ${REDIS_HOST:localhost}
       port: 6379
       database: 0
-      password: 123456
+      password: ${REDIS_PASSWORD:123456}
       lettuce:
         pool:
           max-active: 16
@@ -27,10 +32,10 @@ spring:
 sa-token:
   token-name: Authorization
   token-prefix: Bearer
-  timeout: 86400           # token 有效期 24小时 (秒)
-  active-timeout: -1       # 临时有效期 (-1 不限制)
-  is-concurrent: true      # 允许同一账号并发登录
-  is-share: true           # 多端登录共享 token
+  timeout: 86400
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
   token-style: uuid
   is-read-header: true
   is-read-cookie: false
@@ -46,28 +51,12 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# AI 中台地址
-ai:
-  service:
-    url: http://localhost:8000
-
-# 配送服务费(元)
-delivery:
-  service-fee: 5.00
-
-# 文件存储配置
-storage:
-  type: local                    # local 或 oss
-  local:
-    path: C:/Users/Administrator/Desktop/agent/campus-platform/backend/uploads
-    url-prefix: http://localhost:8080/uploads
-  # oss:
-  #   endpoint: oss-cn-hangzhou.aliyuncs.com
-  #   bucket: campus-platform
-  #   access-key: your-access-key
-  #   secret-key: your-secret-key
-  #   url-prefix: https://campus-platform.oss-cn-hangzhou.aliyuncs.com
-
 logging:
   level:
     com.campus: debug
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -28,7 +28,8 @@ export const useChatStore = defineStore('chat', () => {
   function connectWebSocket(token) {
     if (ws && ws.readyState === WebSocket.OPEN) return
 
-    const wsUrl = `ws://${window.location.hostname}:8080/ws/chat?token=${token}`
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat?token=${token}`
     ws = new WebSocket(wsUrl)
 
     ws.onmessage = (event) => {

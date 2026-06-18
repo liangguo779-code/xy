@@ -1,4 +1,4 @@
-package com.campus.admin.controller;
+package com.campus.user.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
@@ -44,7 +44,6 @@ public class AdminUserController {
         if (status != 0 && status != 1) {
             throw new BusinessException("状态值只能为 0（禁用）或 1（启用）");
         }
-        // 禁止禁用自己
         Long currentUserId = StpUtil.getLoginIdAsLong();
         if (id.equals(currentUserId)) {
             throw new BusinessException("不能禁用自己的账号");
@@ -59,7 +58,6 @@ public class AdminUserController {
         if (role < 0 || role > 2) {
             throw new BusinessException("角色值只能为 0（普通用户）、1（管理员）、2（交付员）");
         }
-        // 禁止修改自己的角色
         Long currentUserId = StpUtil.getLoginIdAsLong();
         if (id.equals(currentUserId)) {
             throw new BusinessException("不能修改自己的角色");

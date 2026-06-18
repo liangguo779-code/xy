@@ -59,7 +59,8 @@ const routes = [
       { path: 'reports', name: 'AdminReports', component: () => import('@/views/admin/ReportManage.vue') },
       { path: 'bans', name: 'AdminBans', component: () => import('@/views/admin/BanManage.vue') },
       { path: 'forum', name: 'AdminForum', component: () => import('@/views/admin/ForumManage.vue') },
-      { path: 'config', name: 'AdminConfig', component: () => import('@/views/admin/SystemConfig.vue') }
+      { path: 'config', name: 'AdminConfig', component: () => import('@/views/admin/SystemConfig.vue') },
+      { path: 'knowledge', name: 'AdminKnowledge', component: () => import('@/views/admin/KnowledgeManage.vue') }
     ]
   }
 ]

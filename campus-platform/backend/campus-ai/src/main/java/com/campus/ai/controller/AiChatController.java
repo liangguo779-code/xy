@@ -9,9 +9,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @RestController
@@ -22,6 +33,11 @@ public class AiChatController {
     private final AiService aiService;
     private final AiChatHistoryService historyService;
     private final ObjectMapper objectMapper;
+
+    @Value("${ai.service.url:http://localhost:8000}")
+    private String aiServiceUrl;
+
+    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     /**
      * 发送消息（带会话持久化）
@@ -78,6 +94,132 @@ public class AiChatController {
         }
 
         return R.ok(response);
+    }
+
+    /**
+     * 流式问答（SSE 代理到 Python AI 中台，带会话持久化）
+     */
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter chatStream(@Valid @RequestBody ChatRequest request) {
+        Long userId = StpUtil.getLoginIdAsLong();
+
+        // 自动创建会话
+        Long sessionId = request.getSessionId();
+        if (sessionId == null) {
+            AiChatSessionVO session = historyService.createSession(userId,
+                    request.getQuestion().length() > 30
+                            ? request.getQuestion().substring(0, 30) + "..."
+                            : request.getQuestion());
+            sessionId = session.getId();
+        }
+
+        // 加载历史消息
+        if (request.getHistory() == null || request.getHistory().isEmpty()) {
+            try {
+                List<AiChatMessageVO> historyMsgs = historyService.getMessages(sessionId, userId);
+                if (historyMsgs != null && !historyMsgs.isEmpty()) {
+                    List<ChatRequest.HistoryItem> history = historyMsgs.stream()
+                            .map(m -> {
+                                ChatRequest.HistoryItem item = new ChatRequest.HistoryItem();
+                                item.setRole(m.getRole());
+                                item.setContent(m.getContent());
+                                return item;
+                            })
+                            .toList();
+                    request.setHistory(history);
+                }
+            } catch (Exception e) {
+                log.warn("加载历史消息失败: {}", e.getMessage());
+            }
+        }
+
+        // 保存用户消息
+        historyService.saveMessage(sessionId, "user", request.getQuestion(), null);
+
+        // 创建 SseEmitter（超时 120 秒）
+        SseEmitter emitter = new SseEmitter(120000L);
+        Long finalSessionId = sessionId;
+
+        sseExecutor.execute(() -> {
+            StringBuilder answerBuilder = new StringBuilder();
+            String sourcesJson = null;
+
+            try {
+                // 构建请求体
+                String requestBody = objectMapper.writeValueAsString(request);
+
+                // 连接 Python AI 中台
+                HttpURLConnection conn = (HttpURLConnection) URI.create(aiServiceUrl + "/chat/stream").toURL().openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(120000);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(requestBody.getBytes(StandardCharsets.UTF_8));
+                }
+
+                // 读取 SSE 流并转发
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.startsWith("data: ")) {
+                            String data = line.substring(6);
+
+                            // 收集回答内容用于持久化
+                            if (data.contains("\"type\":\"token\"")) {
+                                try {
+                                    var node = objectMapper.readTree(data);
+                                    if (node.has("content")) {
+                                        answerBuilder.append(node.get("content").asText());
+                                    }
+                                } catch (Exception ignored) {}
+                            } else if (data.contains("\"type\":\"sources\"")) {
+                                try {
+                                    var node = objectMapper.readTree(data);
+                                    if (node.has("sources")) {
+                                        sourcesJson = node.get("sources").toString();
+                                        // 注入 sessionId 到 sources 事件
+                                        data = data.replace("\"sources\":", "\"sessionId\":" + finalSessionId + ",\"sources\":");
+                                    }
+                                } catch (Exception ignored) {}
+                            }
+
+                            // 转发给前端
+                            emitter.send(SseEmitter.event().data(data));
+                        }
+                    }
+                }
+
+                // 流结束，保存 AI 回答到数据库
+                String answer = answerBuilder.toString();
+                if (!answer.isEmpty()) {
+                    historyService.saveMessage(finalSessionId, "assistant", answer, sourcesJson);
+                    log.info("流式问答完成并保存: sessionId={}, answerLen={}", finalSessionId, answer.length());
+                }
+
+                emitter.complete();
+
+            } catch (Exception e) {
+                log.error("流式问答失败: sessionId={}, error={}", finalSessionId, e.getMessage());
+                try {
+                    // 发送错误事件给前端
+                    String errorEvent = "{\"type\":\"token\",\"content\":\"抱歉，暂时无法回答您的问题，请稍后重试。\"}";
+                    emitter.send(SseEmitter.event().data(errorEvent));
+                    emitter.send(SseEmitter.event().data("{\"type\":\"done\"}"));
+                    emitter.complete();
+                } catch (Exception ignored) {
+                    emitter.completeWithError(e);
+                }
+            }
+        });
+
+        emitter.onTimeout(() -> log.warn("SSE 超时: sessionId={}", finalSessionId));
+        emitter.onError(e -> log.warn("SSE 错误: sessionId={}, error={}", finalSessionId, e.getMessage()));
+
+        return emitter;
     }
 
     /**

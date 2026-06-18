@@ -1,0 +1,70 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: campus-user-service
+
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/campus?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+      database: 0
+      password: ${REDIS_PASSWORD:123456}
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+
+# Sa-Token 配置
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  timeout: 86400
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
+  token-style: uuid
+  is-read-header: true
+  is-read-cookie: false
+  is-log: false
+  public-paths: /api/auth/login,/api/auth/register,/api/auth/send-code,/api/auth/reset-password,/api/auth/bootstrap-admin,/doc.html,/webjars/**,/v3/api-docs/**,/swagger-resources/**
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# 文件存储配置
+storage:
+  type: local
+  local:
+    path: ${UPLOAD_PATH:C:/Users/Administrator/Desktop/agent/campus-platform/backend/uploads}
+    url-prefix: ${UPLOAD_URL_PREFIX:http://localhost:8080/uploads}
+
+logging:
+  level:
+    com.campus: debug
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -7,8 +7,8 @@ import com.campus.common.entity.BanRecord;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
 import com.campus.common.service.BanService;
-import com.campus.user.entity.User;
-import com.campus.user.mapper.UserMapper;
+import com.campus.user.feign.UserFeignClient;
+import com.campus.user.feign.dto.UserVO;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -17,7 +17,6 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -27,19 +26,17 @@ import java.util.Map;
 public class AdminBanController {
 
     private final BanService banService;
-    private final UserMapper userMapper;
+    private final UserFeignClient userFeignClient;
 
-    /**
-     * 封禁用户
-     */
     @PostMapping("/user")
     public R<Void> banUser(@Valid @RequestBody BanUserReq req) {
         // 不能封禁管理员
-        User targetUser = userMapper.selectById(req.userId);
-        if (targetUser != null && targetUser.getRole() == 1) {
-            throw new BusinessException("不能封禁管理员用户");
+        R<UserVO> userResult = userFeignClient.getUserById(req.userId);
+        if (userResult.getCode() == 200 && userResult.getData() != null) {
+            if (userResult.getData().getRole() == 1) {
+                throw new BusinessException("不能封禁管理员用户");
+            }
         }
-        // 不能封禁自己
         Long currentUserId = StpUtil.getLoginIdAsLong();
         if (req.userId.equals(currentUserId)) {
             throw new BusinessException("不能封禁自己");
@@ -48,27 +45,18 @@ public class AdminBanController {
         return R.ok();
     }
 
-    /**
-     * 封禁IP
-     */
     @PostMapping("/ip")
     public R<Void> banIp(@Valid @RequestBody BanIpReq req) {
         banService.banIp(req.ip, req.banType, req.reason, req.days, StpUtil.getLoginIdAsLong());
         return R.ok();
     }
 
-    /**
-     * 解除封禁
-     */
     @PutMapping("/{id}/unban")
     public R<Void> unban(@PathVariable Long id) {
         banService.unban(id, StpUtil.getLoginIdAsLong());
         return R.ok();
     }
 
-    /**
-     * 封禁记录列表
-     */
     @GetMapping
     public R<Page<BanRecord>> list(
             @RequestParam(required = false) String targetType,
@@ -78,9 +66,6 @@ public class AdminBanController {
         return R.ok(banService.listBanRecords(targetType, status, page, size));
     }
 
-    /**
-     * 查询用户封禁状态
-     */
     @GetMapping("/check/user/{userId}")
     public R<Map<String, BanRecord>> checkUserBan(@PathVariable Long userId) {
         Map<String, BanRecord> result = new java.util.HashMap<>();
@@ -96,7 +81,7 @@ public class AdminBanController {
         @NotNull(message = "用户ID不能为空")
         private Long userId;
         @NotBlank(message = "封禁类型不能为空")
-        private String banType; // all/trade/message/forum
+        private String banType;
         @NotBlank(message = "原因不能为空")
         private String reason;
         @Min(1)

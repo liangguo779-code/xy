@@ -17,10 +17,10 @@ import com.campus.trade.mapper.*;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.OrderService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
-import com.campus.user.entity.Address;
-import com.campus.user.entity.User;
-import com.campus.user.mapper.UserMapper;
-import com.campus.user.service.AddressService;
+import com.campus.user.feign.UserFeignClient;
+import com.campus.user.feign.dto.AddressVO;
+import com.campus.user.feign.dto.UserVO;
+import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,11 +44,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     private final OrderMapper orderMapper;
     private final GoodsMapper goodsMapper;
-    private final UserMapper userMapper;
+    private final UserFeignClient userFeignClient;
     private final ReviewMapper reviewMapper;
     private final DeliveryOrderMapper deliveryOrderMapper;
     private final DeliveryService deliveryService;
-    private final AddressService addressService;
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
     private final com.campus.common.service.NotificationService notificationService;
@@ -125,16 +124,31 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     ? LocalDateTime.parse(req.getPickupTime()) : null);
         } else {
             // 配送流程：校验双方地址
-            Address buyerAddr = req.getAddressId() != null
-                    ? addressService.getAddress(actualBuyerId, req.getAddressId())
-                    : addressService.getDefaultAddress(actualBuyerId);
+            AddressVO buyerAddr = null;
+            try {
+                if (req.getAddressId() != null) {
+                    R<AddressVO> addrResult = userFeignClient.getAddress(actualBuyerId, req.getAddressId());
+                    if (addrResult.getCode() == 200 && addrResult.getData() != null) buyerAddr = addrResult.getData();
+                } else {
+                    R<AddressVO> addrResult = userFeignClient.getDefaultAddress(actualBuyerId);
+                    if (addrResult.getCode() == 200 && addrResult.getData() != null) buyerAddr = addrResult.getData();
+                }
+            } catch (Exception e) {
+                throw new BusinessException("查询买家地址失败，请稍后重试");
+            }
             if (buyerAddr == null) {
                 throw new BusinessException("买家尚未添加收货地址，请先在收货地址中添加");
             }
 
-            Address sellerAddr = addressService.getDefaultAddress(sellerId);
-            if (sellerAddr == null) {
-                throw new BusinessException("卖家尚未添加收货地址，无法发起配送");
+            try {
+                R<AddressVO> sellerAddrResult = userFeignClient.getDefaultAddress(sellerId);
+                if (sellerAddrResult.getCode() != 200 || sellerAddrResult.getData() == null) {
+                    throw new BusinessException("卖家尚未添加收货地址，无法发起配送");
+                }
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new BusinessException("查询卖家地址失败，请稍后重试");
             }
 
             order.setStatus(OrderStatus.DELIVERY_NEGOTIATING.getCode());
@@ -416,8 +430,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 只有买家、卖家、管理员可以查看订单详情
         if (!order.getBuyerId().equals(userId) && !order.getSellerId().equals(userId)) {
             // 检查是否是管理员
-            User user = userMapper.selectById(userId);
-            if (user == null || user.getRole() != 1) {
+            try {
+                R<UserVO> userResult = userFeignClient.getUserById(userId);
+                if (userResult.getCode() != 200 || userResult.getData() == null || userResult.getData().getRole() != 1) {
+                    throw new BusinessException(403, "无权查看此订单");
+                }
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception e) {
                 throw new BusinessException(403, "无权查看此订单");
             }
         }
@@ -505,10 +525,22 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 vo.setGoodsImage(null);
             }
         }
-        User buyer = userMapper.selectById(order.getBuyerId());
-        if (buyer != null) vo.setBuyerNickname(buyer.getNickname());
-        User seller = userMapper.selectById(order.getSellerId());
-        if (seller != null) vo.setSellerNickname(seller.getNickname());
+        try {
+            R<UserVO> buyerResult = userFeignClient.getUserById(order.getBuyerId());
+            if (buyerResult.getCode() == 200 && buyerResult.getData() != null) {
+                vo.setBuyerNickname(buyerResult.getData().getNickname());
+            }
+        } catch (Exception e) {
+            log.warn("获取买家信息失败: {}", order.getBuyerId());
+        }
+        try {
+            R<UserVO> sellerResult = userFeignClient.getUserById(order.getSellerId());
+            if (sellerResult.getCode() == 200 && sellerResult.getData() != null) {
+                vo.setSellerNickname(sellerResult.getData().getNickname());
+            }
+        } catch (Exception e) {
+            log.warn("获取卖家信息失败: {}", order.getSellerId());
+        }
 
         // 填充配送工单ID
         if (order.getDealType() != null && order.getDealType() == 1) {

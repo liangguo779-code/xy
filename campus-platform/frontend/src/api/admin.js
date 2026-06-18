@@ -30,6 +30,9 @@ export function forceOffGoods(id) {
 export function getGoodsStats() {
   return request.get('/api/admin/goods/stats')
 }
+export function reindexGoods() {
+  return request.put('/api/admin/goods/reindex')
+}
 
 // 订单管理
 export function getAdminOrders(params) {
@@ -53,4 +56,31 @@ export function getAdminReports(params) {
 }
 export function handleReport(id, data) {
   return request.put(`/api/admin/reports/${id}/handle`, data)
+}
+
+// 知识库管理
+export function getKnowledgeList() {
+  return request.get('/api/admin/knowledge/list')
+}
+export function uploadKnowledge(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/api/admin/knowledge/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+export function getKnowledgeContent(filename) {
+  return request.get(`/api/admin/knowledge/${filename}/content`)
+}
+export function updateKnowledgeContent(filename, content) {
+  return request.put(`/api/admin/knowledge/${filename}`, { content })
+}
+export function toggleKnowledge(filename) {
+  return request.post(`/api/admin/knowledge/toggle/${filename}`)
+}
+export function deleteKnowledge(filename) {
+  return request.delete(`/api/admin/knowledge/${filename}`)
+}
+export function rebuildKnowledge() {
+  return request.post('/api/admin/knowledge/rebuild')
 }

@@ -1,4 +1,4 @@
-package com.campus.admin.controller;
+package com.campus.trade.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -8,6 +8,7 @@ import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
 import com.campus.trade.entity.Goods;
 import com.campus.trade.mapper.GoodsMapper;
+import com.campus.trade.service.GoodsIndexService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +21,7 @@ import java.util.Map;
 public class AdminGoodsController {
 
     private final GoodsMapper goodsMapper;
+    private final GoodsIndexService goodsIndexService;
 
     @GetMapping
     public R<Page<Goods>> list(
@@ -47,6 +49,8 @@ public class AdminGoodsController {
                 .eq(Goods::getId, id)
                 .set(Goods::getStatus, 0)
                 .set(Goods::getOffReason, null));
+        goods.setStatus(0);
+        goodsIndexService.indexGoods(goods);
         return R.ok();
     }
 
@@ -61,6 +65,7 @@ public class AdminGoodsController {
                 .eq(Goods::getId, id)
                 .set(Goods::getStatus, 1)
                 .set(Goods::getOffReason, "管理员拒绝：" + (reason != null ? reason : "违规内容")));
+        goodsIndexService.deleteGoods(id);
         return R.ok();
     }
 
@@ -75,6 +80,7 @@ public class AdminGoodsController {
                 .eq(Goods::getId, id)
                 .set(Goods::getStatus, 1)
                 .set(Goods::getOffReason, "管理员强制下架：" + (reason != null ? reason : "")));
+        goodsIndexService.deleteGoods(id);
         return R.ok();
     }
 
@@ -84,5 +90,11 @@ public class AdminGoodsController {
         long onSale = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 0));
         long sold = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 2));
         return R.ok(Map.of("total", total, "onSale", onSale, "sold", sold));
+    }
+
+    @PutMapping("/reindex")
+    public R<Void> reindex() {
+        goodsIndexService.reindexAll();
+        return R.ok();
     }
 }

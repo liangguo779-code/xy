@@ -17,8 +17,10 @@ import com.campus.trade.service.DeliveryFeeService;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.DeliveryTrackService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
-import com.campus.user.entity.User;
-import com.campus.user.mapper.UserMapper;
+import com.campus.user.feign.UserFeignClient;
+import com.campus.user.feign.dto.UserVO;
+import com.campus.user.feign.dto.AddressVO;
+import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -40,10 +42,9 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     private final DeliveryOrderMapper deliveryMapper;
     private final DeliveryTrackMapper trackMapper;
     private final OrderMapper orderMapper;
-    private final UserMapper userMapper;
+    private final UserFeignClient userFeignClient;
     private final ChatWebSocketHandler wsHandler;
     private final RedissonClient redisson;
-    private final com.campus.user.service.AddressService addressService;
     private final DeliveryTrackService deliveryTrackService;
     private final DeliveryFeeService deliveryFeeService;
 
@@ -86,8 +87,19 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     public DeliveryOrderVO acceptOrder(Long runnerId, Long deliveryId,
                                        java.math.BigDecimal lat, java.math.BigDecimal lng) {
         // 校验交付员角色
-        User runner = userMapper.selectById(runnerId);
-        if (runner == null || (runner.getRole() != 2 && runner.getRole() != 1)) {
+        UserVO runner;
+        try {
+            R<UserVO> runnerResult = userFeignClient.getUserById(runnerId);
+            if (runnerResult.getCode() != 200 || runnerResult.getData() == null) {
+                throw new BusinessException(403, "用户不存在");
+            }
+            runner = runnerResult.getData();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(403, "用户服务不可用，请稍后重试");
+        }
+        if (runner.getRole() != 2 && runner.getRole() != 1) {
             throw new BusinessException(403, "只有交付员或管理员可以抢单");
         }
 
@@ -272,15 +284,23 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     }
 
     private String getUserDormitory(Long userId) {
-        User user = userMapper.selectById(userId);
         // 优先用宿舍地址
-        if (user != null && user.getDormitory() != null && !user.getDormitory().isEmpty()) {
-            return user.getDormitory();
+        try {
+            R<UserVO> userResult = userFeignClient.getUserById(userId);
+            if (userResult.getCode() == 200 && userResult.getData() != null) {
+                UserVO user = userResult.getData();
+                if (user.getDormitory() != null && !user.getDormitory().isEmpty()) {
+                    return user.getDormitory();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("查询用户信息失败: userId={}", userId, e);
         }
         // 没有则用默认收货地址
         try {
-            com.campus.user.entity.Address addr = addressService.getDefaultAddress(userId);
-            if (addr != null) {
+            R<AddressVO> addrResult = userFeignClient.getDefaultAddress(userId);
+            if (addrResult.getCode() == 200 && addrResult.getData() != null) {
+                AddressVO addr = addrResult.getData();
                 return addr.getBuilding() + " " + addr.getDetail() + " (" + addr.getContactName() + " " + addr.getPhone() + ")";
             }
         } catch (Exception e) {
@@ -312,8 +332,14 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
             vo.setOrderNo(order.getOrderNo());
         }
         if (d.getRunnerId() != null) {
-            User runner = userMapper.selectById(d.getRunnerId());
-            if (runner != null) vo.setRunnerNickname(runner.getNickname());
+            try {
+                R<UserVO> runnerResult = userFeignClient.getUserById(d.getRunnerId());
+                if (runnerResult.getCode() == 200 && runnerResult.getData() != null) {
+                    vo.setRunnerNickname(runnerResult.getData().getNickname());
+                }
+            } catch (Exception e) {
+                // Feign 调用失败时忽略
+            }
         }
 
         return vo;

@@ -17,8 +17,11 @@ import com.campus.trade.mapper.CategoryMapper;
 import com.campus.trade.mapper.FavoriteMapper;
 import com.campus.trade.mapper.GoodsMapper;
 import com.campus.trade.mapper.OrderMapper;
+import com.campus.trade.service.GoodsIndexService;
+import com.campus.trade.service.GoodsSearchService;
 import com.campus.trade.service.GoodsService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -27,6 +30,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements GoodsService {
@@ -40,12 +44,32 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     private final CategoryMapper categoryMapper;
     private final OrderMapper orderMapper;
     private final NotificationService notificationService;
+    private final GoodsSearchService goodsSearchService;
+    private final GoodsIndexService goodsIndexService;
 
     @Override
     public Page<Goods> listGoods(String keyword, Long categoryId, Long userId, Integer type,
                                  BigDecimal minPrice, BigDecimal maxPrice,
                                  String condition, String sortBy,
                                  int page, int size) {
+        // 有 keyword 且不是"我的商品"场景时，走 ES 搜索
+        if (StringUtils.hasText(keyword) && userId == null) {
+            try {
+                return goodsSearchService.searchGoods(keyword, categoryId, type,
+                        minPrice, maxPrice, condition, sortBy, page, size);
+            } catch (Exception e) {
+                log.warn("ES 搜索失败，降级到 MySQL: {}", e.getMessage());
+            }
+        }
+
+        return listGoodsFromMySQL(keyword, categoryId, userId, type,
+                minPrice, maxPrice, condition, sortBy, page, size);
+    }
+
+    private Page<Goods> listGoodsFromMySQL(String keyword, Long categoryId, Long userId, Integer type,
+                                            BigDecimal minPrice, BigDecimal maxPrice,
+                                            String condition, String sortBy,
+                                            int page, int size) {
         LambdaQueryWrapper<Goods> wrapper = new LambdaQueryWrapper<Goods>()
                 .eq(Goods::getStatus, 0);
 
@@ -177,6 +201,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         goods.setWantCount(0);
         goods.setLikeCount(0);
         save(goods);
+        goodsIndexService.indexGoods(goods);
         return goods;
     }
 
@@ -243,6 +268,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         }
 
         updateById(existing);
+        goodsIndexService.indexGoods(existing);
     }
 
     @Override
@@ -271,6 +297,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                 .eq(Goods::getId, goodsId)
                 .set(Goods::getStatus, 1)
                 .set(Goods::getOffReason, reason));
+        goodsIndexService.deleteGoods(goodsId);
     }
 
     @Override
@@ -294,6 +321,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         update(new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, goodsId)
                 .set(Goods::getStatus, 2));
+        goodsIndexService.deleteGoods(goodsId);
     }
 
     @Override
@@ -315,6 +343,8 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         update(new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, goodsId)
                 .set(Goods::getRefreshTime, java.time.LocalDateTime.now()));
+        existing.setRefreshTime(java.time.LocalDateTime.now());
+        goodsIndexService.indexGoods(existing);
     }
 
     @Override

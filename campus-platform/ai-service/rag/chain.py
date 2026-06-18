@@ -1,53 +1,71 @@
 import os
 import logging
 from dotenv import load_dotenv
-from rag.retriever import search
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是校园事务咨询助手，专门帮助学生解答关于学校规章制度、办事流程、课程安排等问题。
-
-请根据以下参考资料回答学生的问题。
-如果资料中没有相关信息，请如实说明，并建议学生联系对应的学校部门。
-
-**重要要求：**
-1. 回答要简洁明了，条理清晰
-2. 在回答的关键内容后用 [来源X] 标注引用出处
-3. 回答末尾用 "---" 分隔，列出所有引用的来源详情
-4. 如果学生的问题涉及之前的对话内容（例如"上一句"、"刚才"、"之前"等），请结合对话历史回答，明确告知学生之前问了什么"""
-
-CONTEXT_TEMPLATE = """参考资料:
-{context}"""
+# 预编译 LangGraph（模块级单例）
+_graph = None
 
 
-def get_llm():
-    """获取 LLM 客户端"""
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
-
-    if api_key and api_key != "sk-your-api-key":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=model,
-            openai_api_key=api_key,
-            openai_api_base=base_url,
-            temperature=0.3,
-        )
-    else:
-        return None
+def _get_graph():
+    """获取 LangGraph 实例（单例）"""
+    global _graph
+    if _graph is None:
+        from rag.graph import build_graph
+        _graph = build_graph()
+        logger.info("LangGraph 状态图初始化完成")
+    return _graph
 
 
 def rag_query(question: str, history: list = None) -> dict:
-    """RAG 问答主流程
+    """RAG 问答主流程（通过 LangGraph 执行）
 
     Args:
         question: 用户问题
         history: 对话历史 [{"role": "user/assistant", "content": "..."}]
     """
-    # 1. 向量检索
+    from rag.llm import get_llm
+
+    llm = get_llm()
+
+    # 无 LLM 时降级为简单的检索 + 返回原文
+    if llm is None:
+        return _fallback_query(question)
+
+    # 通过 LangGraph 执行 Agentic RAG
+    graph = _get_graph()
+
+    initial_state = {
+        "question": question,
+        "history": history or [],
+        "rewritten_queries": [],
+        "search_results": [],
+        "best_score": 999.0,
+        "retry_count": 0,
+        "answer": "",
+        "sources": [],
+        "stage": "start",
+    }
+
+    try:
+        result = graph.invoke(initial_state)
+        logger.info("RAG 完成: stage=%s, retry=%d", result.get("stage"), result.get("retry_count", 0))
+        return {
+            "answer": result.get("answer", ""),
+            "sources": result.get("sources", []),
+        }
+    except Exception as e:
+        logger.error("LangGraph 执行失败: %s", e)
+        return _fallback_query(question)
+
+
+def _fallback_query(question: str) -> dict:
+    """降级：无 LLM 时直接返回检索结果"""
+    from rag.retriever import search
+
     search_results = search(question, top_k=5)
 
     if not search_results:
@@ -56,11 +74,9 @@ def rag_query(question: str, history: list = None) -> dict:
             "sources": [],
         }
 
-    # 2. 构建带编号的上下文
-    context_parts = []
     source_list = []
+    answer = "根据知识库检索，以下是相关信息：\n\n"
     for i, r in enumerate(search_results, 1):
-        context_parts.append(f"[来源{i}] 来自《{r['source']}》:\n{r['content']}")
         source_list.append({
             "index": i,
             "source": r["source"],
@@ -68,46 +84,96 @@ def rag_query(question: str, history: list = None) -> dict:
             "content": r["content"],
             "score": r.get("score", 0),
         })
+        answer += f"**[来源{i}]** 《{r['source']}》\n{r['content'][:300]}...\n\n"
 
+    return {"answer": answer, "sources": source_list}
+
+
+def rag_query_stream(question: str, history: list = None):
+    """RAG 问答流式版本（生成器，逐 token 输出）
+
+    Yields:
+        dict: {"type": "stage", "stage": "..."} 或 {"type": "token", "content": "..."} 或 {"type": "sources", "sources": [...]}
+    """
+    from rag.llm import get_llm, SYSTEM_PROMPT, CONTEXT_TEMPLATE
+
+    llm = get_llm()
+    if llm is None:
+        result = _fallback_query(question)
+        yield {"type": "sources", "sources": result["sources"]}
+        yield {"type": "token", "content": result["answer"]}
+        yield {"type": "done"}
+        return
+
+    graph = _get_graph()
+
+    initial_state = {
+        "question": question,
+        "history": history or [],
+        "rewritten_queries": [],
+        "search_results": [],
+        "best_score": 999.0,
+        "retry_count": 0,
+        "answer": "",
+        "sources": [],
+        "stage": "start",
+    }
+
+    try:
+        result = graph.invoke(initial_state)
+    except Exception as e:
+        logger.error("LangGraph 执行失败: %s", e)
+        result = _fallback_query(question)
+        yield {"type": "sources", "sources": result["sources"]}
+        yield {"type": "token", "content": result["answer"]}
+        yield {"type": "done"}
+        return
+
+    stage = result.get("stage", "")
+    sources = result.get("sources", [])
+
+    yield {"type": "sources", "sources": sources}
+
+    # 如果是闲聊/超纲/兜底，直接返回完整回答
+    if stage in ("chat_reply", "reject_reply", "fallback"):
+        yield {"type": "token", "content": result.get("answer", "")}
+        yield {"type": "done"}
+        return
+
+    # 如果是 generate_done/generate_fallback，流式输出
+    if stage in ("generate_fallback", "generate_error"):
+        yield {"type": "token", "content": result.get("answer", "")}
+        yield {"type": "done"}
+        return
+
+    # 正常 generate：用 LLM 流式生成
+    results = result.get("search_results", [])
+    context_parts = []
+    for i, r in enumerate(results[:5], 1):
+        context_parts.append(f"[来源{i}] 来自《{r['source']}》:\n{r['content']}")
     context = "\n\n---\n\n".join(context_parts)
 
-    # 3. 调用 LLM
-    llm = get_llm()
-
-    if llm is None:
-        # 降级: 直接返回检索结果
-        answer = "根据知识库检索，以下是相关信息：\n\n"
-        for s in source_list:
-            answer += f"**[来源{s['index']}]** 《{s['source']}》\n{s['content'][:300]}...\n\n"
-        return {"answer": answer, "sources": source_list}
-
-    # 4. 构建消息列表（使用正确的 chat message 格式）
     from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
-
-    # 添加对话历史作为独立消息
-    if history and len(history) > 0:
-        logger.info("使用对话历史: %d 条消息", len(history))
-        for msg in history[-10:]:  # 最多取最近10条
+    if history:
+        for msg in history[-10:]:
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role == "user":
                 messages.append(HumanMessage(content=content))
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
-    else:
-        logger.info("无对话历史")
 
-    # 添加参考资料和当前问题
     user_message = CONTEXT_TEMPLATE.format(context=context) + f"\n\n学生问题: {question}"
     messages.append(HumanMessage(content=user_message))
 
-    # 5. LLM 生成回答
-    logger.info("发送 %d 条消息给 LLM", len(messages))
-    response = llm.invoke(messages)
+    try:
+        for chunk in llm.stream(messages):
+            if chunk.content:
+                yield {"type": "token", "content": chunk.content}
+    except Exception as e:
+        logger.error("LLM 流式生成失败: %s", e)
+        yield {"type": "token", "content": result.get("answer", "")}
 
-    return {
-        "answer": response.content,
-        "sources": source_list,
-    }
+    yield {"type": "done"}

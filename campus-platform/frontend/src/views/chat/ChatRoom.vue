@@ -188,7 +188,8 @@ function getGoodsImage(goods) {
 
 function connectWebSocket() {
   const token = localStorage.getItem('token')
-  ws = new WebSocket(`ws://${window.location.hostname}:8080/ws/chat?token=${token}`)
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/chat?token=${token}`)
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)

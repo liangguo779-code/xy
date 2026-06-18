@@ -49,6 +49,10 @@
             <el-icon><Setting /></el-icon>
             <span>系统配置</span>
           </el-menu-item>
+          <el-menu-item index="/admin/knowledge">
+            <el-icon><Document /></el-icon>
+            <span>知识库管理</span>
+          </el-menu-item>
         </el-menu-item-group>
       </el-menu>
     </el-aside>
@@ -71,7 +75,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back
+  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document
 } from '@element-plus/icons-vue'
 
 const route = useRoute()

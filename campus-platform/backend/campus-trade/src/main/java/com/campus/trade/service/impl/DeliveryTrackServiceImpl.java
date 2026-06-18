@@ -10,8 +10,9 @@ import com.campus.trade.mapper.DeliveryOrderMapper;
 import com.campus.trade.mapper.DeliveryTrackMapper;
 import com.campus.trade.mapper.OrderMapper;
 import com.campus.trade.service.DeliveryTrackService;
-import com.campus.user.entity.User;
-import com.campus.user.mapper.UserMapper;
+import com.campus.user.feign.UserFeignClient;
+import com.campus.user.feign.dto.UserVO;
+import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -25,7 +26,7 @@ public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, D
     private final DeliveryTrackMapper trackMapper;
     private final DeliveryOrderMapper deliveryMapper;
     private final OrderMapper orderMapper;
-    private final UserMapper userMapper;
+    private final UserFeignClient userFeignClient;
 
     @Override
     public void addTrack(Long deliveryId, Long runnerId, String action,
@@ -62,7 +63,15 @@ public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, D
         boolean isParticipant = order != null &&
                 (order.getBuyerId().equals(userId) || order.getSellerId().equals(userId));
         boolean isRunner = delivery.getRunnerId() != null && delivery.getRunnerId().equals(userId);
-        boolean isAdmin = userMapper.selectById(userId).getRole() == 1;
+        boolean isAdmin = false;
+        try {
+            R<UserVO> userResult = userFeignClient.getUserById(userId);
+            if (userResult.getCode() == 200 && userResult.getData() != null) {
+                isAdmin = userResult.getData().getRole() == 1;
+            }
+        } catch (Exception e) {
+            // Feign 调用失败时忽略
+        }
 
         if (!isParticipant && !isRunner && !isAdmin) {
             throw new BusinessException(403, "无权查看此工单轨迹");

@@ -1,18 +1,18 @@
 #!/bin/bash
-# 校园生态平台 - 开发模式启动脚本
-# 用法: bash start-dev.sh
+# 校园生态平台 - 微服务开发模式启动脚本
+# 前置条件: Docker 容器 (mysql, redis, elasticsearch, nacos) 已启动
 
 set -e
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$PROJECT_DIR/logs"
 
 echo "=========================================="
-echo "  校园生态平台 - 开发模式启动"
+echo "  校园生态平台 - 微服务模式启动"
 echo "=========================================="
 
 # 1. 检查前置条件
 echo ""
-echo "[1/7] 检查环境..."
+echo "[1/8] 检查环境..."
 
 if ! command -v java &> /dev/null; then
     echo "❌ 未找到 Java，请安装 JDK 17+"
@@ -39,26 +39,42 @@ echo "✅ Node: $(node -v)"
 echo "✅ Python: $(python --version 2>&1 || python3 --version 2>&1)"
 echo "✅ Maven: $(mvn -v 2>&1 | head -1)"
 
-# 2. 检查基础设施
+# 2. 检查 Docker 基础设施
 echo ""
-echo "[2/7] 检查 MySQL 和 Redis..."
+echo "[2/8] 检查 Docker 基础设施..."
 
-if ! netstat -an 2>/dev/null | grep -q ":3306.*LISTEN"; then
-    echo "⚠️  MySQL 未运行，请先启动 MySQL (端口 3306)"
-    echo "   或运行: docker-compose up -d mysql redis"
+check_container() {
+    local name=$1
+    local port=$2
+    local display=$3
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${name}$"; then
+        echo "✅ ${display} 容器运行中"
+        return 0
+    elif netstat -an 2>/dev/null | grep -q ":${port}.*LISTEN"; then
+        echo "✅ ${display} 端口 ${port} 可用"
+        return 0
+    else
+        echo "❌ ${display} 未运行 (容器: ${name}, 端口: ${port})"
+        return 1
+    fi
+}
+
+INFRA_OK=true
+check_container "mysql" 3306 "MySQL" || INFRA_OK=false
+check_container "redis" 6379 "Redis" || INFRA_OK=false
+check_container "elasticsearch" 9200 "Elasticsearch" || INFRA_OK=false
+check_container "nacos" 8848 "Nacos" || INFRA_OK=false
+
+if [ "$INFRA_OK" = false ]; then
+    echo ""
+    echo "请先启动基础设施容器:"
+    echo "  docker-compose up -d mysql redis elasticsearch nacos"
     exit 1
 fi
-echo "✅ MySQL 已运行"
-
-if ! netstat -an 2>/dev/null | grep -q ":6379.*LISTEN"; then
-    echo "⚠️  Redis 未运行，请先启动 Redis (端口 6379)"
-    exit 1
-fi
-echo "✅ Redis 已运行"
 
 # 3. 启动 AI 中台
 echo ""
-echo "[3/7] 启动 AI 中台 (端口 8000)..."
+echo "[3/8] 启动 AI 中台 (端口 8000)..."
 cd "$PROJECT_DIR/ai-service"
 
 if [ ! -d "venv" ]; then
@@ -69,92 +85,123 @@ fi
 source venv/bin/activate 2>/dev/null || source venv/Scripts/activate 2>/dev/null
 pip install -r requirements.txt -q -i https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null
 
-# 后台启动
 nohup python main.py > ../logs/ai-service.log 2>&1 &
 AI_PID=$!
 echo "✅ AI 中台已启动 (PID: $AI_PID)"
 
-# 4. 构建并启动后端
+# 4. 构建后端微服务
 echo ""
-echo "[4/7] 构建并启动后端 (端口 8080)..."
+echo "[4/8] 构建后端微服务..."
 cd "$PROJECT_DIR/backend"
 mvn clean package -DskipTests -q
 
-# 后台启动
-nohup java -jar campus-admin/target/campus-admin-1.0.0-SNAPSHOT.jar > ../logs/backend.log 2>&1 &
-BACKEND_PID=$!
-echo "✅ 后端已启动 (PID: $BACKEND_PID)"
-
-# 5. 启动前端
+# 5. 启动微服务
 echo ""
-echo "[5/7] 启动前端 (端口 5173)..."
+echo "[5/8] 启动微服务..."
+
+start_service() {
+    local jar=$1
+    local name=$2
+    local port=$3
+    local log=$4
+
+    echo "  启动 ${name} (端口 ${port})..."
+    nohup java -jar "$jar" > "../logs/${log}" 2>&1 &
+    echo $!
+}
+
+GATEWAY_PID=$(start_service "campus-gateway/target/campus-gateway-1.0.0-SNAPSHOT.jar" "Gateway" 9000 "gateway.log")
+echo "  ✅ Gateway PID: $GATEWAY_PID"
+
+USER_PID=$(start_service "campus-user/target/campus-user-1.0.0-SNAPSHOT.jar" "User Service" 8081 "user.log")
+echo "  ✅ User Service PID: $USER_PID"
+
+TRADE_PID=$(start_service "campus-trade/target/campus-trade-1.0.0-SNAPSHOT.jar" "Trade Service" 8082 "trade.log")
+echo "  ✅ Trade Service PID: $TRADE_PID"
+
+FORUM_PID=$(start_service "campus-forum/target/campus-forum-1.0.0-SNAPSHOT.jar" "Forum Service" 8083 "forum.log")
+echo "  ✅ Forum Service PID: $FORUM_PID"
+
+AI_CONSULT_PID=$(start_service "campus-ai/target/campus-ai-1.0.0-SNAPSHOT.jar" "AI Consult" 8084 "ai-consult.log")
+echo "  ✅ AI Consult PID: $AI_CONSULT_PID"
+
+ADMIN_PID=$(start_service "campus-admin/target/campus-admin-1.0.0-SNAPSHOT.jar" "Admin Service" 8085 "admin.log")
+echo "  ✅ Admin Service PID: $ADMIN_PID"
+
+# 6. 启动前端
+echo ""
+echo "[6/8] 启动前端 (端口 5173)..."
 cd "$PROJECT_DIR/frontend"
 npm install -q 2>/dev/null
 
-# 后台启动
 nohup npm run dev > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "✅ 前端已启动 (PID: $FRONTEND_PID)"
 
-# 6. 等待服务就绪
+# 7. 等待服务就绪
 echo ""
-echo "[6/7] 等待服务就绪..."
+echo "[7/8] 等待服务就绪..."
 
-# 等待 AI 中台就绪
-echo "  等待 AI 中台..."
-for i in $(seq 1 30); do
-    if curl -s http://localhost:8000/health > /dev/null 2>&1; then
-        echo "✅ AI 中台就绪"
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "⚠️  AI 中台启动超时，请检查日志: $PROJECT_DIR/logs/ai-service.log"
-    fi
-    sleep 2
-done
+wait_for_service() {
+    local url=$1
+    local name=$2
+    local max_wait=${3:-40}
+    printf "  等待 %-20s" "$name..."
+    for i in $(seq 1 $max_wait); do
+        if curl -s "$url" > /dev/null 2>&1; then
+            echo " ✅"
+            return 0
+        fi
+        sleep 2
+    done
+ echo " ⚠️ 超时"
+    return 1
+}
 
-# 等待后端就绪
-echo "  等待后端..."
-for i in $(seq 1 30); do
-    if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1 || curl -s http://localhost:8080/doc.html > /dev/null 2>&1; then
-        echo "✅ 后端就绪"
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "⚠️  后端启动超时，请检查日志: $PROJECT_DIR/logs/backend.log"
-    fi
-    sleep 2
-done
+wait_for_service "http://localhost:8000/health" "AI 中台"
+wait_for_service "http://localhost:9000/actuator/health" "Gateway"
+wait_for_service "http://localhost:8081/actuator/health" "User Service"
+wait_for_service "http://localhost:8082/actuator/health" "Trade Service"
+wait_for_service "http://localhost:8083/actuator/health" "Forum Service"
+wait_for_service "http://localhost:8084/actuator/health" "AI Consult"
+wait_for_service "http://localhost:8085/actuator/health" "Admin Service"
 
-# 7. 初始化 RAG 知识库
+# 8. 初始化 RAG 知识库
 echo ""
-echo "[7/7] 初始化 RAG 知识库..."
-RAG_RESPONSE=$(curl -s -X POST http://localhost:8000/knowledge/rebuild 2>&1)
-if echo "$RAG_RESPONSE" | grep -q "重建完成"; then
-    echo "✅ RAG 知识库初始化完成"
-    echo "  $RAG_RESPONSE"
+echo "[8/8] 初始化 RAG 知识库..."
+MD_COUNT=$(find "$PROJECT_DIR/ai-service/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
+if [ "$MD_COUNT" -eq 0 ]; then
+    echo "  知识库为空，跳过索引"
 else
-    echo "⚠️  RAG 初始化失败或知识库为空"
-    echo "  $RAG_RESPONSE"
-    echo "  可稍后手动触发: curl -X POST http://localhost:8000/knowledge/rebuild"
+    RAG_RESPONSE=$(curl -s -X POST http://localhost:8000/knowledge/rebuild 2>&1)
+    if echo "$RAG_RESPONSE" | grep -q "重建"; then
+        echo "  ✅ RAG 知识库已触发（${MD_COUNT} 个文件）"
+    else
+        echo "  ⚠️  RAG 初始化失败: $RAG_RESPONSE"
+    fi
 fi
 
+# 保存 PID
+echo "$AI_PID $GATEWAY_PID $USER_PID $TRADE_PID $FORUM_PID $AI_CONSULT_PID $ADMIN_PID $FRONTEND_PID" > "$PROJECT_DIR/.pids"
+
 echo ""
 echo "=========================================="
-echo "  🎉 启动完成！"
+echo "  启动完成！"
 echo "=========================================="
 echo ""
-echo "  前端:     http://localhost:5173"
-echo "  后端 API: http://localhost:8080"
-echo "  AI 中台:  http://localhost:8000"
-echo "  Swagger:  http://localhost:8080/doc.html"
+echo "  访问地址:"
+echo "    前端:      http://localhost:5173"
+echo "    Gateway:   http://localhost:9000"
+echo "    Nacos:     http://localhost:8848/nacos  (nacos/nacos)"
+echo "    AI 中台:   http://localhost:8000"
+echo ""
+echo "  微服务:"
+echo "    User:    8081  |  Trade:  8082  |  Forum:  8083"
+echo "    AI:      8084  |  Admin:  8085"
 echo ""
 echo "  测试账号: testuser / test123"
-echo "  管理后台: admin / admin123 -> 右上角头像 -> 管理后台"
+echo "  管理后台: admin / admin123"
 echo ""
-echo "  日志目录: $PROJECT_DIR/logs/"
-echo "  停止服务: bash stop-dev.sh"
+echo "  日志: $PROJECT_DIR/logs/"
+echo "  停止: bash stop-dev.sh"
 echo ""
-
-# 保存 PID
-echo "$AI_PID $BACKEND_PID $FRONTEND_PID" > "$PROJECT_DIR/.pids"

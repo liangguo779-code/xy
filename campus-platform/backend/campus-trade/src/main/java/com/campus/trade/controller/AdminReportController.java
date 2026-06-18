@@ -1,4 +1,4 @@
-package com.campus.admin.controller;
+package com.campus.trade.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
