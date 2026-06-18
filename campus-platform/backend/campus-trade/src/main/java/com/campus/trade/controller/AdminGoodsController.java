@@ -22,6 +22,7 @@ public class AdminGoodsController {
 
     private final GoodsMapper goodsMapper;
     private final GoodsIndexService goodsIndexService;
+    private final com.campus.trade.mapper.OrderMapper orderMapper;
 
     @GetMapping
     public R<Page<Goods>> list(
@@ -45,6 +46,17 @@ public class AdminGoodsController {
         if (goods.getStatus() != 3) {
             throw new BusinessException("只有待审核的商品才能审核通过");
         }
+
+        // 检查是否有进行中的订单（status=3 可能是"已预订"而非"待审核"）
+        Long activeOrders = orderMapper.selectCount(
+                new LambdaQueryWrapper<com.campus.trade.entity.Order>()
+                        .eq(com.campus.trade.entity.Order::getGoodsId, id)
+                        .ne(com.campus.trade.entity.Order::getStatus, com.campus.trade.enums.OrderStatus.COMPLETED.getCode())
+                        .ne(com.campus.trade.entity.Order::getStatus, com.campus.trade.enums.OrderStatus.CANCELLED.getCode()));
+        if (activeOrders > 0) {
+            throw new BusinessException("该商品有进行中的订单，无法审核通过");
+        }
+
         goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, id)
                 .set(Goods::getStatus, 0)
@@ -61,6 +73,17 @@ public class AdminGoodsController {
         if (goods.getStatus() == 2) {
             throw new BusinessException("已售出的商品不能拒绝");
         }
+
+        // 检查是否有进行中的订单
+        Long activeOrders = orderMapper.selectCount(
+                new LambdaQueryWrapper<com.campus.trade.entity.Order>()
+                        .eq(com.campus.trade.entity.Order::getGoodsId, id)
+                        .ne(com.campus.trade.entity.Order::getStatus, com.campus.trade.enums.OrderStatus.COMPLETED.getCode())
+                        .ne(com.campus.trade.entity.Order::getStatus, com.campus.trade.enums.OrderStatus.CANCELLED.getCode()));
+        if (activeOrders > 0) {
+            throw new BusinessException("该商品有 " + activeOrders + " 个进行中的订单，请先处理订单后再操作");
+        }
+
         goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, id)
                 .set(Goods::getStatus, 1)
@@ -73,9 +96,20 @@ public class AdminGoodsController {
     public R<Void> forceOff(@PathVariable Long id, @RequestParam(required = false) String reason) {
         Goods goods = goodsMapper.selectById(id);
         if (goods == null) throw new BusinessException("商品不存在");
-        if (goods.getStatus() != 0) {
-            throw new BusinessException("只有在售商品才能强制下架");
+        if (goods.getStatus() != 0 && goods.getStatus() != 3) {
+            throw new BusinessException("只有在售或已预订的商品才能强制下架");
         }
+
+        // 检查是否有进行中的订单
+        Long activeOrders = orderMapper.selectCount(
+                new LambdaQueryWrapper<com.campus.trade.entity.Order>()
+                        .eq(com.campus.trade.entity.Order::getGoodsId, id)
+                        .ne(com.campus.trade.entity.Order::getStatus, com.campus.trade.enums.OrderStatus.COMPLETED.getCode())
+                        .ne(com.campus.trade.entity.Order::getStatus, com.campus.trade.enums.OrderStatus.CANCELLED.getCode()));
+        if (activeOrders > 0) {
+            throw new BusinessException("该商品有 " + activeOrders + " 个进行中的订单，请先处理订单后再操作");
+        }
+
         goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, id)
                 .set(Goods::getStatus, 1)
@@ -88,8 +122,9 @@ public class AdminGoodsController {
     public R<Map<String, Object>> stats() {
         long total = goodsMapper.selectCount(null);
         long onSale = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 0));
+        long reserved = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 3));
         long sold = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 2));
-        return R.ok(Map.of("total", total, "onSale", onSale, "sold", sold));
+        return R.ok(Map.of("total", total, "onSale", onSale, "reserved", reserved, "sold", sold));
     }
 
     @PutMapping("/reindex")
