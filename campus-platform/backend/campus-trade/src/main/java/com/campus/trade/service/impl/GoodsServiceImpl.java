@@ -348,6 +348,25 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     }
 
     @Override
+    public void reshelfGoods(Long userId, Long goodsId) {
+        Goods existing = getById(goodsId);
+        if (existing == null || !existing.getUserId().equals(userId)) {
+            throw new BusinessException("无权操作");
+        }
+        if (existing.getStatus() != 1) {
+            throw new BusinessException("只有已下架的商品才能重新上架");
+        }
+        update(new LambdaUpdateWrapper<Goods>()
+                .eq(Goods::getId, goodsId)
+                .set(Goods::getStatus, 0)
+                .set(Goods::getOffReason, null)
+                .set(Goods::getRefreshTime, java.time.LocalDateTime.now()));
+        existing.setStatus(0);
+        existing.setRefreshTime(java.time.LocalDateTime.now());
+        goodsIndexService.indexGoods(existing);
+    }
+
+    @Override
     public Page<Goods> listMyGoods(Long userId, Integer status, int page, int size) {
         LambdaQueryWrapper<Goods> wrapper = new LambdaQueryWrapper<Goods>()
                 .eq(Goods::getUserId, userId);

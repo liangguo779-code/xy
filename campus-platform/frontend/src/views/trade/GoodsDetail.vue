@@ -28,6 +28,7 @@
       <div class="price-tags">
         <el-tag v-if="goods.condition" size="small" type="info">{{ goods.condition }}</el-tag>
         <el-tag v-if="goods.type === 1" size="small" type="warning">求购</el-tag>
+        <el-tag v-if="goods.status === 3" size="small" type="warning">已预订</el-tag>
         <el-tag v-if="goods.status === 2" size="small" type="danger">已售出</el-tag>
         <el-tag v-if="priceChange" size="small" :type="priceChange < 0 ? 'success' : 'warning'">
           {{ priceChange < 0 ? '降' : '涨' }}了 ¥{{ Math.abs(priceChange) }}
@@ -132,6 +133,7 @@
           下架
         </el-button>
         <el-tag v-if="isOwner && goods.status === 1" type="info" size="large">已下架</el-tag>
+        <el-tag v-if="isOwner && goods.status === 3" type="warning" size="large">已预订</el-tag>
         <el-tag v-if="isOwner && goods.status === 2" type="success" size="large">已售出</el-tag>
       </div>
     </div>
@@ -389,7 +391,7 @@ async function handleDelist() {
     await deleteGoods(goods.value.id)
     ElMessage.success('商品已下架')
     showOffShelf.value = false
-    goods.value.status = 1
+    router.push('/goods')
   } catch (e) { /* handled */ }
 }
 

@@ -110,6 +110,16 @@ public class GoodsController {
     }
 
     /**
+     * 重新上架（已下架的商品）
+     */
+    @PutMapping("/{id}/reshelf")
+    public R<Void> reshelfGoods(@PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        goodsService.reshelfGoods(userId, id);
+        return R.ok();
+    }
+
+    /**
      * 浏览历史
      */
     @GetMapping("/browse-history")

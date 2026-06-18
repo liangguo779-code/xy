@@ -44,6 +44,9 @@ public interface GoodsService extends IService<Goods> {
     /** 擦亮商品（每天限1次） */
     void refreshGoods(Long userId, Long goodsId);
 
+    /** 重新上架（已下架的商品） */
+    void reshelfGoods(Long userId, Long goodsId);
+
     /** 我的商品列表 */
     Page<Goods> listMyGoods(Long userId, Integer status, int page, int size);
 

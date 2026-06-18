@@ -11,6 +11,7 @@
     <el-radio-group v-model="statusFilter" @change="loadGoods" style="margin-bottom: 16px">
       <el-radio-button label="">全部</el-radio-button>
       <el-radio-button label="0">在售</el-radio-button>
+      <el-radio-button label="3">已预订</el-radio-button>
       <el-radio-button label="1">已下架</el-radio-button>
       <el-radio-button label="2">已售出</el-radio-button>
     </el-radio-group>
@@ -126,8 +127,8 @@ const offShelfItem = ref(null)
 const offShelfReason = ref('已卖出')
 const offShelfRemark = ref('')
 
-const statusText = (s) => ({ 0: '在售', 1: '已下架', 2: '已售出' }[s] || '未知')
-const statusType = (s) => ({ 0: 'success', 1: 'info', 2: 'warning' }[s] || '')
+const statusText = (s) => ({ 0: '在售', 1: '已下架', 2: '已售出', 3: '已预订' }[s] || '未知')
+const statusType = (s) => ({ 0: 'success', 1: 'info', 2: 'warning', 3: 'primary' }[s] || '')
 
 function getFirstImage(item) {
   try {
@@ -170,7 +171,7 @@ async function handleOffShelf() {
 }
 
 async function handleReShelf(item) {
-  await request.put(`/api/goods/${item.id}`, { status: 0 })
+  await request.put(`/api/goods/${item.id}/reshelf`)
   ElMessage.success('已重新上架')
   loadGoods()
 }
