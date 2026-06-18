@@ -25,6 +25,9 @@ public class ChatMessage {
 
     private Integer isRead;
 
+    /** 撤回时间（null表示未撤回） */
+    private LocalDateTime recallTime;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 }

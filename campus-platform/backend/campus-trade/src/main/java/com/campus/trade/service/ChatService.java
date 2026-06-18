@@ -10,9 +10,12 @@ import java.util.List;
 public interface ChatService extends IService<ChatMessage> {
 
     /**
-     * 买家点击"我想要"，创建或获取聊天会话
+     * 创建或获取聊天会话
+     * @param userId 当前用户
+     * @param goodsId 商品ID
+     * @param otherUserId 指定对方用户ID（卖家联系买家时传入）
      */
-    ChatSessionVO startSession(Long buyerId, Long goodsId);
+    ChatSessionVO startSession(Long userId, Long goodsId, Long otherUserId);
 
     /**
      * 获取用户的所有聊天会话列表
@@ -33,4 +36,9 @@ public interface ChatService extends IService<ChatMessage> {
      * 标记消息已读
      */
     void markAsRead(Long sessionId, Long userId);
+
+    /**
+     * 撤回消息（2分钟内）
+     */
+    ChatMessageVO recallMessage(Long userId, Long messageId);
 }

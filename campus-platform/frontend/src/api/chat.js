@@ -19,3 +19,8 @@ export function getMessages(sessionId, page = 1, size = 50) {
 export function sendMessage(data) {
   return request.post('/api/chat/messages', data)
 }
+
+/** 撤回消息（2分钟内） */
+export function recallMessage(messageId) {
+  return request.put(`/api/chat/messages/${messageId}/recall`)
+}

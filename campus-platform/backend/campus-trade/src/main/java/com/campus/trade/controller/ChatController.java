@@ -18,9 +18,11 @@ public class ChatController {
     private final ChatService chatService;
 
     @PostMapping("/session")
-    public R<ChatSessionVO> startSession(@RequestParam Long goodsId) {
+    public R<ChatSessionVO> startSession(
+            @RequestParam Long goodsId,
+            @RequestParam(required = false) Long otherUserId) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return R.ok(chatService.startSession(userId, goodsId));
+        return R.ok(chatService.startSession(userId, goodsId, otherUserId));
     }
 
     @GetMapping("/sessions")
@@ -42,5 +44,11 @@ public class ChatController {
     public R<ChatMessageVO> sendMessage(@Valid @RequestBody SendMessageReq req) {
         Long userId = StpUtil.getLoginIdAsLong();
         return R.ok(chatService.sendMessage(userId, req));
+    }
+
+    @PutMapping("/messages/{id}/recall")
+    public R<ChatMessageVO> recallMessage(@PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(chatService.recallMessage(userId, id));
     }
 }

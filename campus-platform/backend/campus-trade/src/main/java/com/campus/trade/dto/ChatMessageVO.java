@@ -15,5 +15,6 @@ public class ChatMessageVO {
     private String content;
     private String extra;
     private Integer isRead;
+    private LocalDateTime recallTime;
     private LocalDateTime createTime;
 }

@@ -15,6 +15,7 @@ import com.campus.trade.entity.Goods;
 import com.campus.trade.mapper.ChatMessageMapper;
 import com.campus.trade.mapper.ChatSessionMapper;
 import com.campus.trade.mapper.GoodsMapper;
+import com.campus.trade.service.BlockService;
 import com.campus.trade.service.ChatService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
 import com.campus.user.feign.UserFeignClient;
@@ -38,31 +39,61 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
     private final UserFeignClient userFeignClient;
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
+    private final BlockService blockService;
 
     public ChatServiceImpl(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper,
                            GoodsMapper goodsMapper, UserFeignClient userFeignClient,
-                           @Lazy ChatWebSocketHandler wsHandler, BanService banService) {
+                           @Lazy ChatWebSocketHandler wsHandler, BanService banService,
+                           BlockService blockService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.goodsMapper = goodsMapper;
         this.userFeignClient = userFeignClient;
         this.wsHandler = wsHandler;
         this.banService = banService;
+        this.blockService = blockService;
     }
 
     @Override
     @Transactional
-    public ChatSessionVO startSession(Long buyerId, Long goodsId) {
+    public ChatSessionVO startSession(Long userId, Long goodsId, Long otherUserId) {
         Goods goods = goodsMapper.selectById(goodsId);
         if (goods == null) {
             throw new BusinessException("商品不存在");
         }
-        // 允许在售(0)和已售出(2)的商品创建会话，已下架(1)不允许
         if (goods.getStatus() == 1) {
             throw new BusinessException("商品已下架");
         }
-        if (goods.getUserId().equals(buyerId)) {
-            throw new BusinessException("不能和自己聊天");
+
+        Long buyerId;
+        Long sellerId = goods.getUserId();
+
+        // 检查拉黑
+        Long otherId = otherUserId != null ? otherUserId : sellerId;
+        if (blockService.isBlocked(userId, otherId)) {
+            throw new BusinessException("你已拉黑该用户");
+        }
+        if (blockService.isBlockedBy(userId, otherId)) {
+            throw new BusinessException("对方已将你拉黑，无法发起会话");
+        }
+
+        if (otherUserId != null) {
+            // 指定了对方用户（卖家联系买家场景）
+            if (userId.equals(sellerId)) {
+                // 当前用户是卖家，对方是买家
+                buyerId = otherUserId;
+            } else if (userId.equals(otherUserId)) {
+                // 当前用户是买家，对方是卖家（不应该传 otherUserId，但兼容处理）
+                buyerId = userId;
+            } else {
+                throw new BusinessException(403, "无权操作");
+            }
+        } else {
+            // 未指定对方（买家点击"我想要"）
+            buyerId = userId;
+            if (buyerId.equals(sellerId)) {
+                throw new BusinessException("不能和自己聊天");
+            }
         }
 
         // 查询是否已有会话
@@ -73,14 +104,14 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         );
 
         if (existing != null) {
-            return toSessionVO(existing, buyerId);
+            return toSessionVO(existing, userId);
         }
 
         // 创建新会话
         ChatSession session = new ChatSession();
         session.setGoodsId(goodsId);
         session.setBuyerId(buyerId);
-        session.setSellerId(goods.getUserId());
+        session.setSellerId(sellerId);
         session.setLastMsg("对方对你的商品感兴趣");
         session.setLastTime(LocalDateTime.now());
         session.setStatus(1);
@@ -94,7 +125,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
                 .eq(Goods::getId, goodsId)
                 .setSql("want_count = want_count + 1"));
 
-        return toSessionVO(session, buyerId);
+        return toSessionVO(session, userId);
     }
 
     @Override
@@ -149,6 +180,16 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
             throw new BusinessException(403, "无权在此会话发送消息");
         }
 
+        // 检查拉黑
+        Long targetUserId = session.getBuyerId().equals(senderId)
+                ? session.getSellerId() : session.getBuyerId();
+        if (blockService.isBlocked(senderId, targetUserId)) {
+            throw new BusinessException("你已拉黑该用户，无法发送消息");
+        }
+        if (blockService.isBlockedBy(senderId, targetUserId)) {
+            throw new BusinessException("对方已将你拉黑，无法发送消息");
+        }
+
         // 防诈骗检测
         checkFraudKeywords(req.getSessionId(), req.getContent());
 
@@ -170,10 +211,14 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         // 构建 VO
         ChatMessageVO vo = toMessageVO(msg);
 
-        // WebSocket 推送给对方
-        Long targetUserId = session.getBuyerId().equals(senderId)
-                ? session.getSellerId() : session.getBuyerId();
+        // WebSocket 推送给对方（targetUserId 已在前面声明）
         wsHandler.pushToUser(targetUserId, Map.of(
+                "type", "new_msg",
+                "data", vo
+        ));
+
+        // 回传给发送者，用于将乐观更新的临时 ID 替换为真实 ID
+        wsHandler.pushToUser(senderId, Map.of(
                 "type", "new_msg",
                 "data", vo
         ));
@@ -189,6 +234,47 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
                 .ne(ChatMessage::getSenderId, userId)
                 .eq(ChatMessage::getIsRead, 0)
                 .set(ChatMessage::getIsRead, 1));
+    }
+
+    @Override
+    @Transactional
+    public ChatMessageVO recallMessage(Long userId, Long messageId) {
+        ChatMessage msg = messageMapper.selectById(messageId);
+        if (msg == null) {
+            throw new BusinessException("消息不存在");
+        }
+        if (!msg.getSenderId().equals(userId)) {
+            throw new BusinessException(403, "只能撤回自己发送的消息");
+        }
+        if (msg.getMsgType() != 0 && msg.getMsgType() != 1) {
+            throw new BusinessException("只有文本和图片消息可以撤回");
+        }
+        // 2分钟内可撤回
+        if (msg.getCreateTime().plusMinutes(2).isBefore(LocalDateTime.now())) {
+            throw new BusinessException("消息已超过2分钟，无法撤回");
+        }
+        if (msg.getRecallTime() != null) {
+            throw new BusinessException("消息已撤回");
+        }
+
+        // 标记撤回
+        msg.setRecallTime(LocalDateTime.now());
+        messageMapper.updateById(msg);
+
+        // 通知双方消息已撤回
+        ChatSession session = sessionMapper.selectById(msg.getSessionId());
+        if (session != null) {
+            Long targetUserId = session.getBuyerId().equals(userId)
+                    ? session.getSellerId() : session.getBuyerId();
+            Map<String, Object> recallData = Map.of(
+                    "type", "recall_msg",
+                    "data", Map.of("messageId", messageId, "sessionId", msg.getSessionId())
+            );
+            wsHandler.pushToUser(targetUserId, recallData);
+            wsHandler.pushToUser(userId, recallData);
+        }
+
+        return toMessageVO(msg);
     }
 
     private void sendSystemMessage(Long sessionId, String content) {
@@ -274,6 +360,12 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
     private ChatMessageVO toMessageVO(ChatMessage msg) {
         ChatMessageVO vo = new ChatMessageVO();
         BeanUtil.copyProperties(msg, vo);
+
+        // 已撤回消息不返回原始内容
+        if (msg.getRecallTime() != null) {
+            vo.setContent(null);
+            vo.setExtra(null);
+        }
 
         if (msg.getSenderId() > 0) {
             try {

@@ -34,7 +34,12 @@
             {{ msg.senderNickname?.charAt(0) }}
           </el-avatar>
           <div class="msg-content-wrapper">
-            <div class="bubble" :class="{ 'unread-bubble': isUnread(msg) }">
+            <!-- 已撤回消息 -->
+            <div v-if="msg.recallTime" class="bubble recalled">
+              <span class="recall-text">消息已撤回</span>
+            </div>
+            <!-- 正常消息 -->
+            <div v-else class="bubble" :class="{ 'unread-bubble': isUnread(msg) }">
               <div v-if="msg.msgType === 1" class="msg-image">
                 <el-image :src="msg.extra" style="max-width: 200px; border-radius: 8px" fit="contain"
                           :preview-src-list="[msg.extra]" />
@@ -47,11 +52,12 @@
             </div>
             <div class="msg-meta">
               <span class="msg-time">{{ formatTime(msg.createTime) }}</span>
-              <span v-if="msg.senderId === userId" class="read-status">
+              <span v-if="msg.senderId === userId && !msg.recallTime" class="read-status">
                 <span v-if="msg.isRead === 1" class="read">已读</span>
                 <span v-else class="unread">未读</span>
               </span>
-              <span v-else-if="msg.isRead === 0" class="new-badge">新</span>
+              <span v-else-if="msg.isRead === 0 && !msg.recallTime" class="new-badge">新</span>
+              <span v-if="canRecall(msg)" class="recall-btn" @click="handleRecall(msg)">撤回</span>
             </div>
           </div>
         </template>
@@ -68,8 +74,8 @@
       <!-- 发起交易（自提/配送） -->
       <el-dropdown trigger="click" @command="handleAction"
                    v-if="!existingOrder && !pendingOrder">
-        <el-button size="small" type="primary" plain>
-          发起交易 <el-icon><ArrowDown /></el-icon>
+        <el-button size="small" type="primary" plain :disabled="goodsInfo?.status === 1 || goodsInfo?.status === 2 || goodsInfo?.status === 3">
+          {{ goodsInfo?.status === 1 ? '商品已下架' : goodsInfo?.status === 2 ? '商品已售出' : goodsInfo?.status === 3 ? '商品已被预订' : '发起交易' }} <el-icon><ArrowDown /></el-icon>
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
@@ -99,10 +105,6 @@
       <el-tag v-if="existingOrder && !pendingOrder" type="success">
         订单已创建
       </el-tag>
-
-      <el-button size="small" type="info" plain @click="handleAction('confirm_price')">
-        确认成交价
-      </el-button>
     </div>
 
     <!-- 输入区域 -->
@@ -129,9 +131,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture } from '@element-plus/icons-vue'
-import { getMessages, getMySessions } from '@/api/chat'
+import { getMessages, getMySessions, recallMessage, sendMessage } from '@/api/chat'
 import { createOrder, confirmDelivery, getMyOrders } from '@/api/order'
 import { getGoodsDetail } from '@/api/goods'
 import { useChatStore } from '@/stores/chat'
@@ -178,6 +180,31 @@ function isUnread(msg) {
   return msg.senderId !== userId && msg.isRead === 0
 }
 
+function canRecall(msg) {
+  if (Number(msg.senderId) !== userId || msg.recallTime) return false
+  if (msg.msgType !== 0 && msg.msgType !== 1) return false
+  const createTime = new Date(msg.createTime)
+  const now = new Date()
+  const diff = now.getTime() - createTime.getTime()
+  return diff > -30000 && diff < 2 * 60 * 1000
+}
+
+async function handleRecall(msg) {
+  try {
+    await ElMessageBox.confirm('确定撤回此消息？', '提示', { type: 'warning' })
+  } catch { return }
+  try {
+    const res = await recallMessage(msg.id)
+    const data = res.data
+    msg.recallTime = data.recallTime
+    msg.content = data.content
+    msg.extra = data.extra
+    ElMessage.success('已撤回')
+  } catch {
+    // 拦截器已统一处理错误提示
+  }
+}
+
 function getGoodsImage(goods) {
   if (!goods?.images) return ''
   try {
@@ -193,18 +220,21 @@ function connectWebSocket() {
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)
+    // 处理消息撤回
+    if (data.type === 'recall_msg' && data.data?.sessionId === sessionId) {
+      const idx = messages.value.findIndex(m => m.id === data.data.messageId)
+      if (idx !== -1) {
+        messages.value[idx].recallTime = new Date().toISOString()
+        messages.value[idx].content = null
+        messages.value[idx].extra = null
+      }
+      return
+    }
     if (data.type === 'new_msg' && data.data?.sessionId === sessionId) {
       const msg = data.data
-      // 去重：乐观更新的消息可能与服务器回显重复
-      const isDuplicate = messages.value.some(m =>
-        m.senderId === msg.senderId &&
-        m.content === msg.content &&
-        m.msgType === msg.msgType &&
-        Math.abs(new Date(m.createTime) - new Date(msg.createTime)) < 5000
-      )
-      if (!isDuplicate) {
-        messages.value.push(msg)
-      }
+      // 去重：按 ID 判断是否已存在
+      if (messages.value.some(m => m.id === msg.id)) return
+      messages.value.push(msg)
       scrollToBottom()
       // 检测交易请求（包括自己发起的，刷新页面后恢复状态）
       if (msg.msgType === 3 && msg.extra) {
@@ -243,60 +273,39 @@ async function loadMessages() {
   chatStore.clearUnread()
 }
 
-function handleSend() {
+async function handleSend() {
   const text = inputText.value.trim()
-  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return
+  if (!text) return
 
-  ws.send(JSON.stringify({
-    type: 'send_msg',
-    sessionId,
-    content: text,
-    msgType: 0
-  }))
-
-  // 乐观更新
-  messages.value.push({
-    id: Date.now(),
-    senderId: userId,
-    content: text,
-    msgType: 0,
-    createTime: new Date().toISOString()
-  })
+  try {
+    const res = await sendMessage({ sessionId, content: text, msgType: 0 })
+    const msg = res.data
+    if (msg && !messages.value.some(m => m.id === msg.id)) {
+      messages.value.push(msg)
+      scrollToBottom()
+    }
+  } catch { /* 拦截器已处理错误提示 */ }
   inputText.value = ''
-  scrollToBottom()
 }
 
-function handleImageUpload(res) {
+async function handleImageUpload(res) {
   if (res.code !== 200) return
   const imageUrl = res.data.url
 
-  // 通过 WebSocket 发送图片消息
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'send_msg',
-      sessionId,
-      content: '[图片]',
-      msgType: 1,
-      extra: imageUrl
-    }))
-  }
-
-  // 乐观更新
-  messages.value.push({
-    id: Date.now(),
-    senderId: userId,
-    content: '[图片]',
-    msgType: 1,
-    extra: imageUrl,
-    createTime: new Date().toISOString()
-  })
-  scrollToBottom()
+  try {
+    const result = await sendMessage({ sessionId, content: '[图片]', msgType: 1, extra: imageUrl })
+    const msg = result.data
+    if (msg && !messages.value.some(m => m.id === msg.id)) {
+      messages.value.push(msg)
+      scrollToBottom()
+    }
+  } catch { /* 拦截器已处理错误提示 */ }
 }
 
 async function handleAction(action) {
   try {
     const goodsId = goodsInfo.value?.id
-    if (!goodsId && action !== 'confirm_price') {
+    if (!goodsId) {
       ElMessage.warning('无法获取商品信息')
       return
     }
@@ -315,22 +324,20 @@ async function handleAction(action) {
       // 自提：只发消息，不创建订单
       const orderInfo = { action: 'self_pickup', goodsId, initiatorId: userId }
       pendingOrder.value = orderInfo
-      sendSystemMsg('请求约定自提，等待对方确认', orderInfo)
+      await sendSystemMsg('请求约定自提，等待对方确认', orderInfo)
       ElMessage.success('已发送自提请求，等待对方确认')
     } else if (action === 'delivery_buyer') {
       // 配送：只发消息，不创建订单
       const orderInfo = { action: 'delivery', goodsId, deliveryFeePayer: 'buyer', initiatorId: userId }
       pendingOrder.value = orderInfo
-      sendSystemMsg('请求平台配送，我方承担跑腿费，等待对方确认', orderInfo)
+      await sendSystemMsg('请求平台配送，我方承担跑腿费，等待对方确认', orderInfo)
       ElMessage.success('已发送配送请求，等待对方确认')
     } else if (action === 'delivery_seller') {
       // 配送：只发消息，不创建订单
       const orderInfo = { action: 'delivery', goodsId, deliveryFeePayer: 'seller', initiatorId: userId }
       pendingOrder.value = orderInfo
-      sendSystemMsg('请求平台配送，请求对方承担跑腿费，等待对方确认', orderInfo)
+      await sendSystemMsg('请求平台配送，请求对方承担跑腿费，等待对方确认', orderInfo)
       ElMessage.success('已发送配送请求，等待对方确认')
-    } else if (action === 'confirm_price') {
-      inputText.value = '我确认最终成交价为 ¥___，同意交易'
     }
   } catch (e) {
     // handled by interceptor
@@ -358,7 +365,7 @@ async function handleConfirmOrder() {
       existingOrder.value = res.data
       pendingOrder.value = null
       ElMessage.success('已确认自提交易')
-      sendSystemMsg('已确认自提交易，请线下完成交易后核销')
+      await sendSystemMsg('已确认自提交易，请线下完成交易后核销')
     } else if (info.action === 'delivery') {
       // 配送确认：创建订单 + 推送派单大厅
       const isCurrentUserSeller = goodsInfo.value?.userId === userId
@@ -376,7 +383,7 @@ async function handleConfirmOrder() {
       existingOrder.value = res.data
       await confirmDelivery(res.data.id, info.deliveryFeePayer)
       ElMessage.success('已确认配送安排，已推送到派单大厅')
-      sendSystemMsg('已确认配送安排，等待骑手接单')
+      await sendSystemMsg('已确认配送安排，等待骑手接单')
     }
     pendingOrder.value = null
   } catch (e) { /* handled */ }
@@ -384,32 +391,25 @@ async function handleConfirmOrder() {
 
 async function handleRejectOrder() {
   if (!pendingOrder.value) return
-  sendSystemMsg('拒绝了交易请求，可重新发起')
+  await sendSystemMsg('拒绝了交易请求，可重新发起')
   pendingOrder.value = null
   ElMessage.info('已拒绝')
 }
 
-function sendSystemMsg(content, extra) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'send_msg',
+async function sendSystemMsg(content, extra) {
+  try {
+    const res = await sendMessage({
       sessionId,
       content,
       msgType: 3,
       extra: extra ? JSON.stringify(extra) : null
-    }))
-  }
-
-  // 乐观更新
-  messages.value.push({
-    id: Date.now(),
-    senderId: userId,
-    content,
-    msgType: 3,
-    extra: extra || null,
-    createTime: new Date().toISOString()
-  })
-  scrollToBottom()
+    })
+    const msg = res.data
+    if (msg && !messages.value.some(m => m.id === msg.id)) {
+      messages.value.push(msg)
+      scrollToBottom()
+    }
+  } catch { /* 拦截器已处理错误提示 */ }
 }
 
 // 从最新消息往前查找待确认的交易请求（包括自己发起的）
@@ -525,6 +525,7 @@ onUnmounted(() => {
 .messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
 }
 
@@ -533,6 +534,7 @@ onUnmounted(() => {
   gap: 10px;
   margin-bottom: 16px;
   align-items: flex-start;
+  min-width: 0;
 }
 
 .msg-item.self {
@@ -546,6 +548,9 @@ onUnmounted(() => {
   background: #F2F3F5;
   line-height: 1.6;
   color: #1D2129;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .msg-item.self .bubble {
@@ -557,6 +562,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  max-width: calc(100% - 58px);
+  min-width: 0;
 }
 
 .msg-item.other .msg-content-wrapper {
@@ -593,6 +600,26 @@ onUnmounted(() => {
 
 .unread-bubble {
   border: 2px solid #5B8FF9;
+}
+
+.recalled {
+  background: #f5f5f5 !important;
+  color: #999 !important;
+}
+
+.recall-text {
+  font-size: 13px;
+  font-style: italic;
+}
+
+.recall-btn {
+  color: #909399;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.recall-btn:hover {
+  color: #409eff;
 }
 
 .system-msg {
