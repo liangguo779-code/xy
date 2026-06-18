@@ -28,12 +28,6 @@ public class DeliveryOrder {
     /** 0-待接单 1-待取货 2-配送中 3-已送达 */
     private Integer status;
 
-    /** 楼层 */
-    private Integer floor;
-
-    /** 是否有电梯 0-无 1-有 */
-    private Integer hasElevator;
-
     /** 配送费 */
     private BigDecimal deliveryFee;
 

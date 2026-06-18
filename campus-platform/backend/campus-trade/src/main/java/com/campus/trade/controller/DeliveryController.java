@@ -4,9 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
 import com.campus.trade.dto.DeliveryOrderVO;
-import com.campus.trade.entity.DeliveryConfig;
 import com.campus.trade.entity.DeliveryTrack;
-import com.campus.trade.service.DeliveryFeeService;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.DeliveryTrackService;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +14,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/delivery")
@@ -25,7 +21,6 @@ import java.util.concurrent.TimeUnit;
 public class DeliveryController {
 
     private final DeliveryService deliveryService;
-    private final DeliveryFeeService deliveryFeeService;
     private final DeliveryTrackService deliveryTrackService;
     private final RedissonClient redisson;
 
@@ -69,21 +64,6 @@ public class DeliveryController {
     public R<List<DeliveryOrderVO>> myDeliveries() {
         Long runnerId = StpUtil.getLoginIdAsLong();
         return R.ok(deliveryService.getMyDeliveries(runnerId));
-    }
-
-    /** 计算配送服务费 */
-    @GetMapping("/fee")
-    public R<Map<String, Object>> calculateFee(
-            @RequestParam(defaultValue = "1") int floor,
-            @RequestParam(defaultValue = "true") boolean hasElevator) {
-        BigDecimal fee = deliveryFeeService.calculateFee(floor, hasElevator);
-        return R.ok(Map.of("fee", fee));
-    }
-
-    /** 获取配送费配置 */
-    @GetMapping("/config")
-    public R<DeliveryConfig> getConfig() {
-        return R.ok(deliveryFeeService.getConfig());
     }
 
     /** 获取物流轨迹 */

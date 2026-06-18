@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
     `content`     VARCHAR(2000) NOT NULL COMMENT '消息内容',
     `extra`       TEXT COMMENT '扩展数据(图片URL/操作参数等)',
     `is_read`     TINYINT DEFAULT 0 COMMENT '是否已读: 0-未读 1-已读',
+    `recall_time` DATETIME DEFAULT NULL COMMENT '撤回时间（null表示未撤回）',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_session` (`session_id`),
     INDEX `idx_create_time` (`create_time`)
@@ -120,8 +121,6 @@ CREATE TABLE IF NOT EXISTS `order` (
     `goods_amount`     DECIMAL(10,2) NOT NULL COMMENT '商品成交价(线下结算,系统记录)',
     `service_fee`      DECIMAL(10,2) DEFAULT 0 COMMENT '平台配送服务费',
     `delivery_fee_payer` VARCHAR(10) DEFAULT 'buyer' COMMENT '跑腿费付款方: buyer/seller',
-    `floor`            INT DEFAULT 1 COMMENT '楼层(配送时用于计算费用)',
-    `has_elevator`     TINYINT DEFAULT 1 COMMENT '是否有电梯: 0-无 1-有',
     `verify_code`      VARCHAR(8) COMMENT '自提核销码(卖家确认用)',
     `status`           TINYINT DEFAULT 0 COMMENT '订单状态(见上方说明)',
     `pickup_location`  VARCHAR(200) COMMENT '自提地点',
@@ -148,8 +147,6 @@ CREATE TABLE IF NOT EXISTS `delivery_order` (
     `pickup_photo`   VARCHAR(500) COMMENT '取货时拍照存证URL',
     `deliver_photo`  VARCHAR(500) COMMENT '送达时拍照存证URL',
     `status`         TINYINT DEFAULT 0 COMMENT '状态: 0-待接单 1-待取货 2-配送中 3-已送达',
-    `floor`          INT DEFAULT 1 COMMENT '楼层',
-    `has_elevator`   TINYINT DEFAULT 1 COMMENT '是否有电梯: 0-无 1-有',
     `delivery_fee`   DECIMAL(10,2) DEFAULT 0 COMMENT '配送费',
     `accept_time`    DATETIME COMMENT '接单时间',
     `pickup_time`    DATETIME COMMENT '取货时间',
@@ -160,24 +157,6 @@ CREATE TABLE IF NOT EXISTS `delivery_order` (
     INDEX `idx_runner` (`runner_id`),
     INDEX `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送工单表';
-
--- ============================================================
--- 配送费配置表
--- ============================================================
-CREATE TABLE IF NOT EXISTS `delivery_config` (
-    `id`                   BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `base_fee`             DECIMAL(10,2) NOT NULL DEFAULT 5.00 COMMENT '基础服务费',
-    `per_floor_fee`        DECIMAL(10,2) DEFAULT 1.00 COMMENT '每层加价(无电梯)',
-    `rush_hour_multiplier` DECIMAL(3,2) DEFAULT 1.50 COMMENT '高峰时段倍率',
-    `rush_hour_start`      TIME DEFAULT '11:30:00' COMMENT '高峰开始',
-    `rush_hour_end`        TIME DEFAULT '13:30:00' COMMENT '高峰结束',
-    `max_fee`              DECIMAL(10,2) DEFAULT 15.00 COMMENT '最高服务费',
-    `update_time`          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配送费配置表';
-
--- 默认配置
-INSERT INTO `delivery_config` (`base_fee`, `per_floor_fee`, `rush_hour_multiplier`, `max_fee`)
-VALUES (5.00, 1.00, 1.50, 15.00);
 
 -- ============================================================
 -- 物流轨迹表
@@ -461,6 +440,17 @@ CREATE TABLE IF NOT EXISTS `ai_chat_message` (
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_session` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI聊天消息表';
+
+-- 用户拉黑表
+CREATE TABLE IF NOT EXISTS `user_block` (
+    `id`              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `user_id`         BIGINT NOT NULL COMMENT '拉黑者ID',
+    `blocked_user_id` BIGINT NOT NULL COMMENT '被拉黑者ID',
+    `create_time`     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_user_blocked` (`user_id`, `blocked_user_id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_blocked_user_id` (`blocked_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户拉黑表';
 
 -- ============================================================
 -- 初始数据

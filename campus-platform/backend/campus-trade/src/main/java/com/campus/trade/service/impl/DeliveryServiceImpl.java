@@ -13,7 +13,6 @@ import com.campus.trade.enums.OrderStatus;
 import com.campus.trade.mapper.DeliveryOrderMapper;
 import com.campus.trade.mapper.DeliveryTrackMapper;
 import com.campus.trade.mapper.OrderMapper;
-import com.campus.trade.service.DeliveryFeeService;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.DeliveryTrackService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
@@ -46,7 +45,6 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     private final ChatWebSocketHandler wsHandler;
     private final RedissonClient redisson;
     private final DeliveryTrackService deliveryTrackService;
-    private final DeliveryFeeService deliveryFeeService;
 
     @Override
     @Transactional
@@ -68,12 +66,6 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         delivery.setBuyerAddr(getUserDormitory(order.getBuyerId()));
         delivery.setSellerAddr(getUserDormitory(order.getSellerId()));
         delivery.setStatus(DeliveryStatus.PENDING.getCode());
-        // 保存楼层信息并计算配送费
-        int floor = order.getFloor() != null ? order.getFloor() : 1;
-        boolean hasElevator = order.getHasElevator() == null || order.getHasElevator() == 1;
-        delivery.setFloor(floor);
-        delivery.setHasElevator(hasElevator ? 1 : 0);
-        delivery.setDeliveryFee(deliveryFeeService.calculateFee(floor, hasElevator));
         deliveryMapper.insert(delivery);
 
         // 订单保持 PENDING_DELIVERY 状态，等跑腿接单后再更新

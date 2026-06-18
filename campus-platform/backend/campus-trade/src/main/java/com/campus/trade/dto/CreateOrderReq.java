@@ -30,12 +30,6 @@ public class CreateOrderReq {
     /** 跑腿费付款方: buyer/seller (配送时填写) */
     private String deliveryFeePayer;
 
-    /** 楼层（配送时填写，用于计算跑腿费） */
-    private Integer floor;
-
-    /** 是否有电梯（配送时填写，用于计算跑腿费） */
-    private Boolean hasElevator;
-
     /** 指定买家ID（仅限聊天确认场景，后端会严格校验） */
     private Long buyerId;
 }

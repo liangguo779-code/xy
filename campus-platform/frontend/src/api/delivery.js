@@ -25,16 +25,6 @@ export function getMyDeliveries() {
   return request.get('/api/delivery/my')
 }
 
-/** 计算配送费 */
-export function calculateFee(floor = 1, hasElevator = true) {
-  return request.get('/api/delivery/fee', { params: { floor, hasElevator } })
-}
-
-/** 获取配送费配置 */
-export function getDeliveryConfig() {
-  return request.get('/api/delivery/config')
-}
-
 /** 获取物流轨迹 */
 export function getDeliveryTracks(deliveryId) {
   return request.get(`/api/delivery/${deliveryId}/tracks`)

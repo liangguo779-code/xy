@@ -238,14 +238,10 @@ test("取消订单", t64)
 print("\n=== 8. 配送模块 /api/delivery ===")
 
 
-def t70(): return requests.get(f"{BASE_URL}/api/delivery/fee", headers=auth(TOKEN), params={"floor": 3, "hasElevator": False}).json()["code"] == 200
-def t71(): return requests.get(f"{BASE_URL}/api/delivery/config", headers=auth(TOKEN)).json()["code"] == 200
-def t72(): return requests.get(f"{BASE_URL}/api/delivery/pending", headers=auth(TOKEN)).json()["code"] == 200
+def t70(): return requests.get(f"{BASE_URL}/api/delivery/pending", headers=auth(TOKEN)).json()["code"] == 200
 
 
-test("计算配送费", t70)
-test("配送费配置", t71)
-test("待接单列表", t72)
+test("待接单列表", t70)
 
 # ========== 9. 评价模块 ==========
 print("\n=== 9. 评价模块 /api/reviews ===")

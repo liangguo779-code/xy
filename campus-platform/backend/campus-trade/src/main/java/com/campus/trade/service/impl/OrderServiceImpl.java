@@ -15,6 +15,7 @@ import com.campus.trade.entity.*;
 import com.campus.trade.enums.OrderStatus;
 import com.campus.trade.mapper.*;
 import com.campus.trade.service.DeliveryService;
+import com.campus.trade.service.GoodsIndexService;
 import com.campus.trade.service.OrderService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
 import com.campus.user.feign.UserFeignClient;
@@ -48,6 +49,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final ReviewMapper reviewMapper;
     private final DeliveryOrderMapper deliveryOrderMapper;
     private final DeliveryService deliveryService;
+    private final GoodsIndexService goodsIndexService;
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
     private final com.campus.common.service.NotificationService notificationService;
@@ -68,8 +70,20 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 防重复下单：使用 FOR UPDATE 锁定商品行，获取最新状态
         Goods goods = goodsMapper.selectOne(new LambdaQueryWrapper<Goods>()
                 .eq(Goods::getId, req.getGoodsId()).last("FOR UPDATE"));
-        if (goods == null || goods.getStatus() != 0) {
-            throw new BusinessException("商品不存在或已下架");
+        if (goods == null) {
+            throw new BusinessException("商品不存在");
+        }
+        if (goods.getStatus() == 1) {
+            throw new BusinessException("商品已下架");
+        }
+        if (goods.getStatus() == 2) {
+            throw new BusinessException("商品已售出");
+        }
+        if (goods.getStatus() == 3) {
+            throw new BusinessException("商品已被其他买家预订");
+        }
+        if (goods.getStatus() != 0) {
+            throw new BusinessException("商品当前不可购买");
         }
 
         Long existingOrder = orderMapper.selectCount(
@@ -90,12 +104,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             if (req.getBuyerId().equals(sellerId)) {
                 throw new BusinessException("买家不能是卖家本人");
             }
-            // 卖家不能指定买家ID（防止卖家冒充任意用户下单）
-            if (buyerId.equals(sellerId)) {
-                throw new BusinessException("卖家不能代替买家创建订单，请让买家发起交易");
-            }
-            // 当前用户必须是指定的买家
-            if (!buyerId.equals(req.getBuyerId())) {
+            // 当前用户必须是买家或卖家之一（聊天中双方都可发起交易）
+            boolean isBuyer = buyerId.equals(req.getBuyerId());
+            boolean isSeller = buyerId.equals(sellerId);
+            if (!isBuyer && !isSeller) {
                 throw new BusinessException(403, "无权创建此订单");
             }
             actualBuyerId = req.getBuyerId();
@@ -154,16 +166,19 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             order.setStatus(OrderStatus.DELIVERY_NEGOTIATING.getCode());
             order.setServiceFee(defaultServiceFee);
             order.setDeliveryFeePayer(req.getDeliveryFeePayer() != null ? req.getDeliveryFeePayer() : "buyer");
-            order.setFloor(req.getFloor() != null ? req.getFloor() : 1);
-            order.setHasElevator(req.getHasElevator() != null ? (req.getHasElevator() ? 1 : 0) : 1);
         }
 
         orderMapper.insert(order);
 
+        // 标记商品为已预订（从列表中隐藏，但未完全售出）
+        goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
+                .eq(Goods::getId, goods.getId())
+                .set(Goods::getStatus, 3)); // 3=待审核/已预订
+        // 从 ES 索引中移除（已预订商品不应出现在搜索结果中）
+        goodsIndexService.deleteGoods(goods.getId());
+
         // 通知对方
         notifyUser(goods.getUserId(), "new_order", order);
-
-        // 配送订单不立即推送到派单大厅，等对方确认后再推送
 
         log.info("订单创建: orderNo={}, dealType={}", order.getOrderNo(), req.getDealType());
         return getOrderDetail(buyerId, order.getId());
@@ -196,7 +211,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     @Transactional
     public OrderVO completeSelfPickup(Long sellerId, Long orderId, String verifyCode) {
-        Order order = getOrderById(orderId);
+        // 使用 FOR UPDATE 加行锁，防止与 cancelOrder 竞态
+        Order order = orderMapper.selectOne(
+                new LambdaQueryWrapper<Order>()
+                        .eq(Order::getId, orderId)
+                        .last("FOR UPDATE"));
+        if (order == null) throw new BusinessException("订单不存在");
         if (!order.getSellerId().equals(sellerId)) {
             throw new BusinessException(403, "无权操作");
         }
@@ -326,7 +346,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     @Transactional
     public OrderVO cancelOrder(Long userId, Long orderId) {
-        Order order = getOrderById(orderId);
+        // 使用 FOR UPDATE 加行锁，防止与 completeSelfPickup/acceptOrder 竞态
+        Order order = orderMapper.selectOne(
+                new LambdaQueryWrapper<Order>()
+                        .eq(Order::getId, orderId)
+                        .last("FOR UPDATE"));
+        if (order == null) throw new BusinessException("订单不存在");
         if (!order.getBuyerId().equals(userId) && !order.getSellerId().equals(userId)) {
             throw new BusinessException(403, "无权操作");
         }
@@ -357,6 +382,28 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, order.getGoodsId())
                 .setSql("want_count = GREATEST(want_count - 1, 0)"));
+
+        // 检查是否还有其他进行中的订单，如果没有则恢复商品为在售状态
+        Long otherActiveOrders = orderMapper.selectCount(
+                new LambdaQueryWrapper<Order>()
+                        .eq(Order::getGoodsId, order.getGoodsId())
+                        .ne(Order::getId, orderId)
+                        .ne(Order::getStatus, OrderStatus.COMPLETED.getCode())
+                        .ne(Order::getStatus, OrderStatus.CANCELLED.getCode()));
+        if (otherActiveOrders == 0) {
+            int updated = goodsMapper.update(null, new LambdaUpdateWrapper<Goods>()
+                    .eq(Goods::getId, order.getGoodsId())
+                    .eq(Goods::getStatus, 3) // 已预订状态才恢复
+                    .set(Goods::getStatus, 0) // 恢复为在售
+                    .set(Goods::getOffReason, null));
+            if (updated > 0) {
+                // 恢复 ES 索引
+                Goods restoredGoods = goodsMapper.selectById(order.getGoodsId());
+                if (restoredGoods != null) {
+                    goodsIndexService.indexGoods(restoredGoods);
+                }
+            }
+        }
 
         Long otherUserId = order.getBuyerId().equals(userId)
                 ? order.getSellerId() : order.getBuyerId();

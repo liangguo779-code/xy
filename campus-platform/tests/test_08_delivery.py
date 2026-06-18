@@ -1,4 +1,4 @@
-"""配送模块测试 - 9个接口"""
+"""配送模块测试 - 7个接口"""
 import requests
 from conftest import BASE_URL, auth_get, auth_post, auth_put
 
@@ -39,27 +39,13 @@ class TestDelivery:
         auth_put(f"{base_url}/api/orders/{order_id}/pay-fee", buyer_token)
         return order_id
 
-    def test_01_calculate_fee(self, base_url, auth_token):
-        """GET /api/delivery/fee - 计算配送费"""
-        resp = auth_get(f"{base_url}/api/delivery/fee", auth_token,
-                        params={"floor": 3, "hasElevator": False})
-        data = resp.json()
-        assert data["code"] == 200
-        assert float(data["data"]["fee"]) > 0
-
-    def test_02_get_config(self, base_url, auth_token):
-        """GET /api/delivery/config - 配送费配置"""
-        resp = auth_get(f"{base_url}/api/delivery/config", auth_token)
-        data = resp.json()
-        assert data["code"] == 200
-
-    def test_03_pending_orders(self, base_url, auth_token):
+    def test_01_pending_orders(self, base_url, auth_token):
         """GET /api/delivery/pending - 待接单列表"""
         resp = auth_get(f"{base_url}/api/delivery/pending", auth_token)
         data = resp.json()
         assert data["code"] == 200
 
-    def test_04_accept_order(self, base_url, auth_token):
+    def test_02_accept_order(self, base_url, auth_token):
         """PUT /api/delivery/{id}/accept - 交付员接单"""
         runner_token = self._ensure_runner(base_url)
 
@@ -82,13 +68,13 @@ class TestDelivery:
             resp = auth_put(f"{base_url}/api/delivery/{delivery_id}/accept", runner_token)
             assert resp.json()["code"] == 200
 
-    def test_05_my_deliveries(self, base_url, auth_token):
+    def test_03_my_deliveries(self, base_url, auth_token):
         """GET /api/delivery/my - 我的工单"""
         runner_token = self._ensure_runner(base_url)
         resp = auth_get(f"{base_url}/api/delivery/my", runner_token)
         assert resp.json()["code"] == 200
 
-    def test_06_pickup_goods(self, base_url, auth_token):
+    def test_04_pickup_goods(self, base_url, auth_token):
         """PUT /api/delivery/{id}/pickup - 取货"""
         if TestDelivery._delivery_id:
             runner_token = self._ensure_runner(base_url)
@@ -96,7 +82,7 @@ class TestDelivery:
                             runner_token, params={"photoUrl": "http://example.com/pickup.jpg"})
             assert resp.status_code == 200
 
-    def test_07_deliver_goods(self, base_url, auth_token):
+    def test_05_deliver_goods(self, base_url, auth_token):
         """PUT /api/delivery/{id}/deliver - 送达"""
         if TestDelivery._delivery_id:
             runner_token = self._ensure_runner(base_url)
@@ -104,13 +90,13 @@ class TestDelivery:
                             runner_token, params={"photoUrl": "http://example.com/deliver.jpg"})
             assert resp.status_code == 200
 
-    def test_08_get_tracks(self, base_url, auth_token):
+    def test_06_get_tracks(self, base_url, auth_token):
         """GET /api/delivery/{id}/tracks - 物流轨迹"""
         if TestDelivery._delivery_id:
             resp = auth_get(f"{base_url}/api/delivery/{TestDelivery._delivery_id}/tracks", auth_token)
             assert resp.json()["code"] == 200
 
-    def test_09_report_location(self, base_url, auth_token):
+    def test_07_report_location(self, base_url, auth_token):
         """POST /api/delivery/{id}/location - 上报位置"""
         if TestDelivery._delivery_id:
             runner_token = self._ensure_runner(base_url)
