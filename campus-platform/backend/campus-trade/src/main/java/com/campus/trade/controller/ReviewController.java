@@ -75,4 +75,24 @@ public class ReviewController {
                 "positiveRate", Math.round(positiveRate)
         ));
     }
+
+    /**
+     * 编辑评价（24小时内可修改）
+     */
+    @PutMapping("/{id}")
+    public R<Void> updateReview(@PathVariable Long id, @Valid @RequestBody CreateReviewReq req) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        reviewService.updateReview(userId, id, req);
+        return R.ok();
+    }
+
+    /**
+     * 删除评价（24小时内可删除）
+     */
+    @DeleteMapping("/{id}")
+    public R<Void> deleteReview(@PathVariable Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        reviewService.deleteReview(userId, id);
+        return R.ok();
+    }
 }

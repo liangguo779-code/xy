@@ -14,6 +14,16 @@ public interface ReviewService extends IService<Review> {
     void createReview(Long reviewerId, CreateReviewReq req);
 
     /**
+     * 编辑评价（24小时内可修改）
+     */
+    void updateReview(Long reviewerId, Long reviewId, CreateReviewReq req);
+
+    /**
+     * 删除评价（24小时内可删除）
+     */
+    void deleteReview(Long reviewerId, Long reviewId);
+
+    /**
      * 获取某用户收到的评价
      */
     List<Review> getReviewsForUser(Long targetId);

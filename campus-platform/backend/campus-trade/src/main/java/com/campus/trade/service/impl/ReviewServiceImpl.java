@@ -12,7 +12,9 @@ import com.campus.trade.mapper.ReviewMapper;
 import com.campus.trade.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -56,6 +58,43 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         review.setContent(req.getContent());
         review.setTags(req.getTags());
         save(review);
+    }
+
+    @Override
+    @Transactional
+    public void updateReview(Long reviewerId, Long reviewId, CreateReviewReq req) {
+        Review review = reviewMapper.selectById(reviewId);
+        if (review == null) {
+            throw new BusinessException("评价不存在");
+        }
+        if (!review.getReviewerId().equals(reviewerId)) {
+            throw new BusinessException(403, "无权修改此评价");
+        }
+        // 24小时内可修改
+        if (review.getCreateTime().plusHours(24).isBefore(LocalDateTime.now())) {
+            throw new BusinessException("评价已超过24小时，无法修改");
+        }
+        review.setRating(req.getRating());
+        review.setContent(req.getContent());
+        review.setTags(req.getTags());
+        reviewMapper.updateById(review);
+    }
+
+    @Override
+    @Transactional
+    public void deleteReview(Long reviewerId, Long reviewId) {
+        Review review = reviewMapper.selectById(reviewId);
+        if (review == null) {
+            throw new BusinessException("评价不存在");
+        }
+        if (!review.getReviewerId().equals(reviewerId)) {
+            throw new BusinessException(403, "无权删除此评价");
+        }
+        // 24小时内可删除
+        if (review.getCreateTime().plusHours(24).isBefore(LocalDateTime.now())) {
+            throw new BusinessException("评价已超过24小时，无法删除");
+        }
+        reviewMapper.deleteById(reviewId);
     }
 
     @Override

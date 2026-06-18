@@ -29,6 +29,10 @@
 
       <!-- 自提流程操作 -->
       <div v-if="order.dealType === 0" class="actions">
+        <!-- 卖家确认订单 -->
+        <div v-if="isSeller && order.status === 0" class="verify-area">
+          <el-button type="primary" @click="handleConfirm">确认交易</el-button>
+        </div>
         <!-- 卖家核销 -->
         <div v-if="isSeller && order.status === 1" class="verify-area">
           <el-input v-model="verifyCode" placeholder="输入买家提供的核销码" style="width: 200px" />
@@ -50,8 +54,9 @@
 
       <!-- 配送流程操作 -->
       <div v-if="order.dealType === 1" class="actions">
-        <el-tag v-if="order.status === 5" type="warning">等待跑腿接单中...</el-tag>
-        <el-tag v-if="order.status === 7" type="primary">跑腿已接单，等待取货</el-tag>
+        <el-tag v-if="order.status === 5" type="warning">等待对方确认配送安排...</el-tag>
+        <el-tag v-if="order.status === 6" type="info">等待骑手接单...</el-tag>
+        <el-tag v-if="order.status === 7" type="primary">骑手已接单，等待取货</el-tag>
         <el-tag v-if="order.status === 8" type="primary">配送中，请等待送达</el-tag>
         <el-button v-if="isBuyer && order.status === 9" type="success"
                    @click="handleConfirmReceive">确认收货（线下付款）</el-button>
@@ -78,7 +83,11 @@
         <el-button v-if="order.status === 3 && !reviewed" type="warning" @click="showReview = true">
           去评价
         </el-button>
-        <el-tag v-if="reviewed" type="success">已评价</el-tag>
+        <template v-if="reviewed">
+          <el-tag type="success">已评价</el-tag>
+          <el-button v-if="canEditReview" text type="primary" size="small" @click="handleEditReview">修改</el-button>
+          <el-button v-if="canEditReview" text type="danger" size="small" @click="handleDeleteReview">删除</el-button>
+        </template>
         <el-button @click="handleContact">联系对方</el-button>
         <el-button v-if="order.status === 3 || order.status === 4" type="danger" plain @click="showDispute = true">
           发起纠纷
@@ -141,9 +150,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  getOrderDetail, completeOrder, confirmReceive, cancelOrder, createReview
+  getOrderDetail, completeOrder, confirmOrder, confirmReceive, cancelOrder, createReview
 } from '@/api/order'
 import { getDeliveryTracks } from '@/api/delivery'
 import { createDispute } from '@/api/dispute'
@@ -163,6 +172,15 @@ const showDispute = ref(false)
 const submittingDispute = ref(false)
 const disputeForm = ref({ reason: '商品与描述不符', evidence: '', evidenceImages: [] })
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
+const myReview = ref(null)
+
+// 评价24小时内可修改/删除
+const canEditReview = computed(() => {
+  if (!myReview.value) return false
+  const createTime = new Date(myReview.value.createTime)
+  const now = new Date()
+  return (now - createTime) < 24 * 60 * 60 * 1000
+})
 
 function trackType(action) {
   return { accept: 'primary', pickup: 'warning', deliver: 'success', location: 'info' }[action] || 'info'
@@ -181,15 +199,27 @@ function toggleTag(tag) {
 async function handleSubmitReview() {
   submittingReview.value = true
   try {
-    await createReview({
-      orderId: order.value.id,
-      rating: reviewForm.value.rating,
-      content: reviewForm.value.content,
-      tags: reviewForm.value.tags
-    })
-    ElMessage.success('评价成功')
+    if (myReview.value) {
+      // 编辑评价
+      await request.put(`/api/reviews/${myReview.value.id}`, {
+        orderId: order.value.id,
+        rating: reviewForm.value.rating,
+        content: reviewForm.value.content,
+        tags: reviewForm.value.tags
+      })
+      ElMessage.success('修改成功')
+    } else {
+      // 新建评价
+      await createReview({
+        orderId: order.value.id,
+        rating: reviewForm.value.rating,
+        content: reviewForm.value.content,
+        tags: reviewForm.value.tags
+      })
+      ElMessage.success('评价成功')
+    }
     showReview.value = false
-    reviewed.value = true
+    loadOrder()
   } finally {
     submittingReview.value = false
   }
@@ -223,7 +253,8 @@ async function loadOrder() {
   try {
     const reviewRes = await request.get(`/api/reviews/order/${route.params.id}`)
     const reviews = reviewRes.data || []
-    reviewed.value = reviews.some(r => r.reviewerId === currentUserId.value)
+    myReview.value = reviews.find(r => r.reviewerId === currentUserId.value) || null
+    reviewed.value = !!myReview.value
   } catch { /* ignore */ }
   // 加载物流轨迹
   if (order.value.dealType === 1 && order.value.deliveryOrderId) {
@@ -232,6 +263,12 @@ async function loadOrder() {
       deliveryTracks.value = trackRes.data || []
     } catch { /* ignore */ }
   }
+}
+
+async function handleConfirm() {
+  await confirmOrder(order.value.id)
+  ElMessage.success('已确认交易，买家将收到核销码')
+  loadOrder()
 }
 
 async function handleComplete() {
@@ -256,8 +293,33 @@ async function handleCancel() {
   loadOrder()
 }
 
+function handleEditReview() {
+  if (!myReview.value) return
+  reviewForm.value = {
+    rating: myReview.value.rating,
+    content: myReview.value.content || '',
+    tags: myReview.value.tags ? JSON.parse(myReview.value.tags) : []
+  }
+  showReview.value = true
+}
+
+async function handleDeleteReview() {
+  try {
+    await ElMessageBox.confirm('确定删除此评价？', '提示', { type: 'warning' })
+    await request.delete(`/api/reviews/${myReview.value.id}`)
+    ElMessage.success('已删除')
+    reviewed.value = false
+    myReview.value = null
+  } catch { /* cancelled */ }
+}
+
 async function handleContact() {
-  const res = await request.post('/api/chat/session', null, { params: { goodsId: order.value.goodsId } })
+  const params = { goodsId: order.value.goodsId }
+  // 卖家联系买家时，指定对方用户ID
+  if (isSeller.value) {
+    params.otherUserId = order.value.buyerId
+  }
+  const res = await request.post('/api/chat/session', null, { params })
   router.push(`/chat/${res.data.id}`)
 }
 
