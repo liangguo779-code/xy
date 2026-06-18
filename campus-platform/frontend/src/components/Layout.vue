@@ -81,7 +81,7 @@
 
 <script setup>
 import MobileTabBar from '@/components/MobileTabBar.vue'
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useChatStore } from '@/stores/chat'
@@ -94,6 +94,11 @@ const chatStore = useChatStore()
 const notifCount = ref(0)
 
 const unreadCount = computed(() => chatStore.unreadCount)
+
+// 离开通知页面时刷新未读数
+watch(() => route.path, (newPath, oldPath) => {
+  if (oldPath === '/notifications') loadNotifCount()
+})
 
 const activeMenu = computed(() => {
   const path = route.path

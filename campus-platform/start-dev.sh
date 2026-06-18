@@ -85,6 +85,7 @@ fi
 source venv/bin/activate 2>/dev/null || source venv/Scripts/activate 2>/dev/null
 pip install -r requirements.txt -q -i https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null
 
+export HF_HUB_OFFLINE=1
 nohup python main.py > ../logs/ai-service.log 2>&1 &
 AI_PID=$!
 echo "✅ AI 中台已启动 (PID: $AI_PID)"
