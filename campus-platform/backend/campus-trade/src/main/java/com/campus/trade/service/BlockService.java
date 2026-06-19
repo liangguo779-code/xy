@@ -3,7 +3,7 @@ package com.campus.trade.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.campus.trade.entity.Block;
-import com.campus.user.feign.dto.UserVO;
+import com.campus.feign.user.dto.UserVO;
 
 public interface BlockService extends IService<Block> {
 

@@ -4,17 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.campus.common.result.R;
 import com.campus.user.entity.Address;
 import com.campus.user.entity.User;
-import com.campus.user.feign.dto.AddressVO;
-import com.campus.user.feign.dto.UserVO;
+import com.campus.feign.user.dto.AddressVO;
+import com.campus.feign.user.dto.UserSimpleVO;
+import com.campus.feign.user.dto.UserStatsVO;
+import com.campus.feign.user.dto.UserVO;
 import com.campus.user.mapper.AddressMapper;
 import com.campus.user.mapper.UserMapper;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -65,17 +65,17 @@ public class InternalUserController {
     }
 
     @GetMapping("/{id}/simple")
-    public R<Map<String, Object>> getUserSimple(@PathVariable Long id) {
+    public R<UserSimpleVO> getUserSimple(@PathVariable Long id) {
         User user = userMapper.selectById(id);
         if (user == null) {
             return R.fail("用户不存在");
         }
-        Map<String, Object> info = new HashMap<>();
-        info.put("id", user.getId());
-        info.put("nickname", user.getNickname());
-        info.put("avatar", user.getAvatar());
-        info.put("role", user.getRole());
-        return R.ok(info);
+        UserSimpleVO vo = new UserSimpleVO();
+        vo.setId(user.getId());
+        vo.setNickname(user.getNickname());
+        vo.setAvatar(user.getAvatar());
+        vo.setRole(user.getRole());
+        return R.ok(vo);
     }
 
     @GetMapping("/address/{userId}/default")
@@ -110,12 +110,12 @@ public class InternalUserController {
     }
 
     @GetMapping("/stats")
-    public R<Map<String, Object>> getUserStats() {
+    public R<UserStatsVO> getUserStats() {
         long total = userMapper.selectCount(null);
         long active = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getStatus, 1));
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("userCount", total);
-        stats.put("activeCount", active);
-        return R.ok(stats);
+        UserStatsVO vo = new UserStatsVO();
+        vo.setUserCount(total);
+        vo.setActiveCount(active);
+        return R.ok(vo);
     }
 }

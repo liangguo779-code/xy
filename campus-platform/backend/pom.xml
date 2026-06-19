@@ -19,10 +19,7 @@
 
     <modules>
         <module>campus-common</module>
-        <module>campus-user-feign</module>
-        <module>campus-trade-feign</module>
-        <module>campus-forum-feign</module>
-        <module>campus-ai-feign</module>
+        <module>campus-feign</module>
         <module>campus-user</module>
         <module>campus-trade</module>
         <module>campus-forum</module>
@@ -96,22 +93,7 @@
             </dependency>
             <dependency>
                 <groupId>com.campus</groupId>
-                <artifactId>campus-user-feign</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.campus</groupId>
-                <artifactId>campus-trade-feign</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.campus</groupId>
-                <artifactId>campus-forum-feign</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.campus</groupId>
-                <artifactId>campus-ai-feign</artifactId>
+                <artifactId>campus-feign</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

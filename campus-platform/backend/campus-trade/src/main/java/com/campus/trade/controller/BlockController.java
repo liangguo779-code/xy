@@ -4,7 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.common.result.R;
 import com.campus.trade.service.BlockService;
-import com.campus.user.feign.dto.UserVO;
+import com.campus.feign.user.dto.UserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

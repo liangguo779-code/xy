@@ -20,7 +20,7 @@
         </dependency>
         <dependency>
             <groupId>com.campus</groupId>
-            <artifactId>campus-user-feign</artifactId>
+            <artifactId>campus-feign</artifactId>
         </dependency>
         <dependency>
             <groupId>co.elastic.clients</groupId>

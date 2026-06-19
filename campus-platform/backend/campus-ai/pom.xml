@@ -19,6 +19,10 @@
             <artifactId>campus-common</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.campus</groupId>
+            <artifactId>campus-feign</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
