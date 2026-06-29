@@ -199,13 +199,14 @@ function toggleTag(tag) {
 async function handleSubmitReview() {
   submittingReview.value = true
   try {
+    const tagsStr = reviewForm.value.tags.length > 0 ? JSON.stringify(reviewForm.value.tags) : undefined
     if (myReview.value) {
       // 编辑评价
       await request.put(`/api/reviews/${myReview.value.id}`, {
         orderId: order.value.id,
         rating: reviewForm.value.rating,
         content: reviewForm.value.content,
-        tags: reviewForm.value.tags
+        tags: tagsStr
       })
       ElMessage.success('修改成功')
     } else {
@@ -214,13 +215,14 @@ async function handleSubmitReview() {
         orderId: order.value.id,
         rating: reviewForm.value.rating,
         content: reviewForm.value.content,
-        tags: reviewForm.value.tags
+        tags: tagsStr
       })
       ElMessage.success('评价成功')
     }
     showReview.value = false
     loadOrder()
-  } finally {
+  } catch (e) { ElMessage.error(e.response?.data?.message || '评价失败') }
+  finally {
     submittingReview.value = false
   }
 }
@@ -255,7 +257,7 @@ async function loadOrder() {
     const reviews = reviewRes.data || []
     myReview.value = reviews.find(r => r.reviewerId === currentUserId.value) || null
     reviewed.value = !!myReview.value
-  } catch { /* ignore */ }
+  } catch { /* 查询评价状态失败不影响订单展示 */ }
   // 加载物流轨迹
   if (order.value.dealType === 1 && order.value.deliveryOrderId) {
     try {
@@ -310,7 +312,11 @@ async function handleDeleteReview() {
     ElMessage.success('已删除')
     reviewed.value = false
     myReview.value = null
-  } catch { /* cancelled */ }
+  } catch (e) {
+    if (e !== 'cancel' && e?.message !== 'cancel') {
+      ElMessage.error(e.response?.data?.message || '删除失败')
+    }
+  }
 }
 
 async function handleContact() {

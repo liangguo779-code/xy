@@ -19,13 +19,12 @@
 
     <modules>
         <module>campus-common</module>
-        <module>campus-feign</module>
         <module>campus-user</module>
         <module>campus-trade</module>
         <module>campus-forum</module>
         <module>campus-ai</module>
         <module>campus-admin</module>
-        <module>campus-gateway</module>
+        <module>campus-app</module>
     </modules>
 
     <properties>
@@ -36,30 +35,10 @@
         <hutool.version>5.8.26</hutool.version>
         <knife4j.version>4.4.0</knife4j.version>
         <elasticsearch.version>8.12.0</elasticsearch.version>
-        <spring-cloud.version>2023.0.1</spring-cloud.version>
-        <spring-cloud-alibaba.version>2023.0.1.0</spring-cloud-alibaba.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- Spring Cloud BOM -->
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- Spring Cloud Alibaba BOM -->
-            <dependency>
-                <groupId>com.alibaba.cloud</groupId>
-                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
-                <version>${spring-cloud-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
             <!-- 内部模块 -->
             <dependency>
                 <groupId>com.campus</groupId>
@@ -88,12 +67,12 @@
             </dependency>
             <dependency>
                 <groupId>com.campus</groupId>
-                <artifactId>campus-gateway</artifactId>
+                <artifactId>campus-admin</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.campus</groupId>
-                <artifactId>campus-feign</artifactId>
+                <artifactId>campus-app</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

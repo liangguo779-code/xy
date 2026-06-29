@@ -3,7 +3,7 @@ package com.campus.user.controller;
 import cn.dev33.satoken.stp.StpUtil;
 import com.campus.common.result.R;
 import com.campus.user.dto.AddressReq;
-import com.campus.user.entity.Address;
+import com.campus.common.entity.Address;
 import com.campus.user.service.AddressService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

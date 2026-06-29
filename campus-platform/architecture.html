@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>校园生态平台 - 完整架构链路文档</title>
+<style>
+  :root {
+    --primary: #5B8FF9;
+    --primary-light: #E8F0FE;
+    --success: #52C41A;
+    --warning: #FAAD14;
+    --danger: #F5222D;
+    --info: #1890FF;
+    --bg: #F7F8FA;
+    --card: #FFFFFF;
+    --text: #1D2129;
+    --text-secondary: #4E5969;
+    --text-muted: #86909C;
+    --border: #E5E6EB;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  a { color: var(--primary); text-decoration: none; }
+
+  /* Header */
+  .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 60px 24px 50px; text-align: center; }
+  .hero h1 { font-size: 36px; font-weight: 800; margin-bottom: 12px; }
+  .hero p { font-size: 16px; opacity: 0.85; max-width: 600px; margin: 0 auto; }
+  .hero .tech-stack { display: flex; justify-content: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+  .hero .tech-tag { background: rgba(255,255,255,0.2); padding: 4px 14px; border-radius: 20px; font-size: 13px; backdrop-filter: blur(4px); }
+
+  /* Layout */
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+  .section { padding: 48px 0; }
+  .section-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+  .section-title .num { background: var(--primary); color: #fff; width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+  .section-desc { color: var(--text-secondary); margin-bottom: 28px; font-size: 15px; }
+
+  /* Cards */
+  .card { background: var(--card); border-radius: var(--radius); box-shadow: 0 1px 3px rgba(0,0,0,0.06); padding: 24px; margin-bottom: 16px; border: 1px solid var(--border); }
+  .card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+
+  /* Grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+  /* Architecture Diagram */
+  .arch-diagram { background: #1a1a2e; border-radius: var(--radius); padding: 32px; color: #e0e0e0; overflow-x: auto; }
+  .arch-diagram pre { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.8; white-space: pre; }
+  .arch-diagram .c-blue { color: #64B5F6; }
+  .arch-diagram .c-green { color: #81C784; }
+  .arch-diagram .c-yellow { color: #FFD54F; }
+  .arch-diagram .c-red { color: #EF5350; }
+  .arch-diagram .c-purple { color: #CE93D8; }
+  .arch-diagram .c-cyan { color: #4DD0E1; }
+  .arch-diagram .c-dim { color: #666; }
+
+  /* Flow */
+  .flow { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin: 16px 0; }
+  .flow-node { background: var(--primary-light); border: 2px solid var(--primary); border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+  .flow-arrow { font-size: 20px; color: var(--text-muted); padding: 0 6px; }
+  .flow-node.green { background: #E8F5E9; border-color: var(--success); color: #2E7D32; }
+  .flow-node.orange { background: #FFF3E0; border-color: var(--warning); color: #E65100; }
+  .flow-node.red { background: #FFEBEE; border-color: var(--danger); color: #C62828; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: #F2F3F5; font-weight: 600; text-align: left; padding: 10px 12px; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #FAFBFC; }
+
+  /* Badge */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .badge-blue { background: #E8F0FE; color: #1565C0; }
+  .badge-green { background: #E8F5E9; color: #2E7D32; }
+  .badge-orange { background: #FFF3E0; color: #E65100; }
+  .badge-red { background: #FFEBEE; color: #C62828; }
+  .badge-purple { background: #F3E5F5; color: #6A1B9A; }
+  .badge-cyan { background: #E0F7FA; color: #00695C; }
+
+  /* DB Schema */
+  .db-table { margin-bottom: 20px; }
+  .db-table-name { font-size: 15px; font-weight: 700; color: var(--primary); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .db-table-name .icon { font-size: 18px; }
+
+  /* Nav */
+  .toc { position: fixed; right: 24px; top: 120px; width: 200px; font-size: 13px; z-index: 100; }
+  .toc a { display: block; padding: 4px 0; color: var(--text-muted); transition: color 0.2s; }
+  .toc a:hover, .toc a.active { color: var(--primary); font-weight: 600; }
+  @media (max-width: 1400px) { .toc { display: none; } }
+
+  /* Separator */
+  .divider { height: 1px; background: var(--border); margin: 8px 0; }
+
+  /* Highlight box */
+  .highlight-box { border-left: 4px solid var(--primary); background: var(--primary-light); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 14px; }
+  .highlight-box.warn { border-color: var(--warning); background: #FFF8E1; }
+
+  /* Code */
+  code { background: #F2F3F5; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'JetBrains Mono', 'Consolas', monospace; }
+
+  /* Feature Card */
+  .feature-card { background: var(--card); border-radius: var(--radius); padding: 20px; border: 1px solid var(--border); }
+  .feature-card h4 { font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .feature-card .icon { font-size: 20px; }
+  .feature-card ul { list-style: none; padding: 0; }
+  .feature-card li { padding: 3px 0; font-size: 13px; color: var(--text-secondary); }
+  .feature-card li::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); margin-right: 8px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>校园生态平台</h1>
+  <p>完整架构链路文档 - 从前端到数据库，串联全部功能模块的实现方式</p>
+  <div class="tech-stack">
+    <span class="tech-tag">Vue 3 + Element Plus</span>
+    <span class="tech-tag">Spring Boot 3</span>
+    <span class="tech-tag">MySQL 8</span>
+    <span class="tech-tag">Redis 7</span>
+    <span class="tech-tag">Elasticsearch 8</span>
+    <span class="tech-tag">WebSocket</span>
+    <span class="tech-tag">SSE</span>
+    <span class="tech-tag">Python FastAPI</span>
+    <span class="tech-tag">Docker Compose</span>
+  </div>
+</div>
+
+<!-- ==================== TOC ==================== -->
+<nav class="toc">
+  <a href="#arch">系统架构</a>
+  <a href="#deploy">部署架构</a>
+  <a href="#auth">用户认证</a>
+  <a href="#goods">商品系统</a>
+  <a href="#chat">即时聊天</a>
+  <a href="#order">交易订单</a>
+  <a href="#delivery">配送系统</a>
+  <a href="#review">评价系统</a>
+  <a href="#forum">社区论坛</a>
+  <a href="#ai">AI 咨询</a>
+  <a href="#admin">管理后台</a>
+  <a href="#safety">安全体系</a>
+  <a href="#database">数据库全表</a>
+</nav>
+
+<div class="container">
+
+<!-- ==================== 1. 系统架构 ==================== -->
+<div class="section" id="arch">
+  <div class="section-title"><span class="num">1</span> 整体系统架构</div>
+  <div class="section-desc">前后端分离单体应用，Docker Compose 一键部署</div>
+
+  <div class="arch-diagram">
+    <pre>
+<span class="c-dim">┌─────────────────────────────────────────────────────────────────────────────┐</span>
+<span class="c-dim">│</span>  <span class="c-blue">用户浏览器</span>                                                                   <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">┌──────────────────────────────────────────────────────────────────────┐</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-yellow">Vue 3 + Vite + Element Plus + Pinia + Vue Router</span>                   <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-dim">────────────────────────────────────────────────────────────────</span>  <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  商品列表 │ 交易聊天 │ 论坛 │ AI助手 │ 订单 │ 个人中心 │ 管理后台  <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-dim">────────────────────────────────────────────────────────────────</span>  <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  HTTP (axios)  │  WebSocket (/ws/chat)  │  SSE (/api/ai/stream)    <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">└──────────────────────────────────────────────────────────────────────┘</span>  <span class="c-dim">│</span>
+<span class="c-dim">└────────────────────────────────────┬────────────────────────────────────────┘</span>
+                                     <span class="c-dim">│</span> :80 (Nginx)
+<span class="c-dim">┌────────────────────────────────────┼────────────────────────────────────────┐</span>
+<span class="c-dim">│</span>                         <span class="c-green">Nginx 反向代理</span>                                       <span class="c-dim">│</span>
+<span class="c-dim">│</span>                    <span class="c-dim">/ → 静态文件 (dist)</span>                                      <span class="c-dim">│</span>
+<span class="c-dim">│</span>                    <span class="c-dim">/api/* → campus-app:9000</span>                                 <span class="c-dim">│</span>
+<span class="c-dim">│</span>                    <span class="c-dim">/ws/*  → campus-app:9000 (WebSocket upgrade)</span>              <span class="c-dim">│</span>
+<span class="c-dim">│</span>                    <span class="c-dim">/uploads/* → 静态文件</span>                                     <span class="c-dim">│</span>
+<span class="c-dim">└────────────────────────────────────┬────────────────────────────────────────┘</span>
+                                     <span class="c-dim">│</span>
+<span class="c-dim">┌────────────────────────────────────┼────────────────────────────────────────┐</span>
+<span class="c-dim">│</span>                    <span class="c-yellow">Spring Boot 3 单体应用 :9000</span>                                <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">┌──────────────────────────────────────────────────────────────────────┐</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-blue">campus-common</span>  (Sa-Token认证 / 上传 / 通知 / 封禁 / 拉黑)           <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-blue">campus-user</span>    (注册 / 登录 / 个人信息 / 收货地址)                    <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-blue">campus-trade</span>   (商品 / 订单 / 聊天 / 评价 / 配送 / 纠纷 / 论坛)       <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-blue">campus-app</span>     (聚合模块 / 启动入口 / 配置)                          <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">│</span>  <span class="c-blue">campus-ai</span>      (AI聊天会话管理 / SSE代理)                             <span class="c-dim">│</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-dim">└──────────────────────────────────────────────────────────────────────┘</span>  <span class="c-dim">│</span>
+<span class="c-dim">└────┬──────────────┬──────────────┬──────────────┬──────────────────────────┘</span>
+     <span class="c-dim">│</span>              <span class="c-dim">│</span>              <span class="c-dim">│</span>              <span class="c-dim">│</span>
+     <span class="c-dim">▼</span>              <span class="c-dim">▼</span>              <span class="c-dim">▼</span>              <span class="c-dim">▼</span>
+<span class="c-green">┌─────────┐</span>  <span class="c-red">┌─────────┐</span>  <span class="c-yellow">┌─────────┐</span>  <span class="c-purple">┌───────────┐</span>
+<span class="c-green">│ MySQL 8 │</span>  <span class="c-red">│ Redis 7 │</span>  <span class="c-yellow">│ ES 8.12 │</span>  <span class="c-purple">│ AI Service│</span>
+<span class="c-green">│  :3306  │</span>  <span class="c-red">│  :6379  │</span>  <span class="c-yellow">│  :9200  │</span>  <span class="c-purple">│  :8000    │</span>
+<span class="c-green">│         │</span>  <span class="c-red">│         │</span>  <span class="c-yellow">│ IK分词  │</span>  <span class="c-purple">│ FastAPI   │</span>
+<span class="c-green">│ 20张表   │</span>  <span class="c-red">│ 会话/缓存│</span>  <span class="c-yellow">│ 商品搜索 │</span>  <span class="c-purple">│ RAG管道   │</span>
+<span class="c-green">└─────────┘</span>  <span class="c-red">└─────────┘</span>  <span class="c-yellow">└─────────┘</span>  <span class="c-purple">└───────────┘</span>
+    </pre>
+  </div>
+</div>
+
+<!-- ==================== 2. 部署架构 ==================== -->
+<div class="section" id="deploy">
+  <div class="section-title"><span class="num">2</span> 部署架构</div>
+  <div class="section-desc">Docker Compose 编排 5 个服务</div>
+
+  <div class="grid-3">
+    <div class="feature-card">
+      <h4><span class="icon">🌐</span> Nginx :80</h4>
+      <ul>
+        <li>前端静态资源 (Vue dist)</li>
+        <li>反向代理 /api/* → :9000</li>
+        <li>WebSocket 代理 /ws/*</li>
+        <li>静态文件 /uploads/*</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">☕</span> campus-app :9000</h4>
+      <ul>
+        <li>Spring Boot 3 单体应用</li>
+        <li>Sa-Token 认证 (Redis)</li>
+        <li>WebSocket Handler</li>
+        <li>所有业务 API</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">🐍</span> ai-service :8000</h4>
+      <ul>
+        <li>Python FastAPI</li>
+        <li>RAG 检索增强生成</li>
+        <li>ES + ChromaDB 向量库</li>
+        <li>DeepSeek LLM</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <div class="card-title">基础设施</div>
+    <table>
+      <tr><th>服务</th><th>镜像</th><th>端口</th><th>用途</th></tr>
+      <tr><td>MySQL</td><td><code>mysql:8.0</code></td><td>3306</td><td>主数据库，20 张业务表</td></tr>
+      <tr><td>Redis</td><td><code>redis:7-alpine</code></td><td>6379</td><td>Sa-Token 会话存储、密码重置码</td></tr>
+      <tr><td>Elasticsearch</td><td><code>elasticsearch-ik:8.12.0</code></td><td>9200</td><td>商品全文搜索（IK 中文分词）</td></tr>
+      <tr><td>AI Service</td><td>自建镜像</td><td>8000</td><td>RAG 管道：embedding → 检索 → rerank → LLM</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== 3. 用户认证 ==================== -->
+<div class="section" id="auth">
+  <div class="section-title"><span class="num">3</span> 用户认证系统</div>
+  <div class="section-desc">Sa-Token 无状态认证 + Redis 会话存储</div>
+
+  <div class="flow">
+    <div class="flow-node">前端登录页</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">POST /api/auth/login</div>
+    <span class="flow-arrow">→</div>
+    <div class="flow-node green">BCrypt 密码校验</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">StpUtil.login(userId)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">Token 存 Redis</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">返回 token 给前端</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">认证方式</div>
+      <table>
+        <tr><td>Token 传递</td><td><code>Authorization: Bearer {token}</code></td></tr>
+        <tr><td>Token 存储</td><td>Redis（Sa-Token 默认）</td></tr>
+        <tr><td>Token 有效期</td><td>86400 秒（24 小时）</td></tr>
+        <tr><td>密码加密</td><td>BCrypt</td></tr>
+        <tr><td>并发登录</td><td>允许（is-concurrent: true）</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">相关接口</div>
+      <table>
+        <tr><td><code>POST /api/auth/login</code></td><td>登录</td></tr>
+        <tr><td><code>POST /api/auth/register</code></td><td>注册</td></tr>
+        <tr><td><code>POST /api/auth/send-code</code></td><td>发送验证码</td></tr>
+        <tr><td><code>POST /api/auth/reset-password</code></td><td>重置密码</td></tr>
+        <tr><td><code>GET /api/user/me</code></td><td>当前用户信息</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 4. 商品系统 ==================== -->
+<div class="section" id="goods">
+  <div class="section-title"><span class="num">4</span> 商品系统</div>
+  <div class="section-desc">Elasticsearch 全文搜索 + MySQL 双路查询 + 瀑布流展示</div>
+
+  <div class="flow">
+    <div class="flow-node">商品列表页 /goods</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">GET /api/goods?keyword=xx</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node orange">有关键词?</div>
+    <span class="flow-arrow">是 →</span>
+    <div class="flow-node">ES 搜索 (IK分词)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">取ID回查MySQL</div>
+  </div>
+  <div class="flow" style="margin-top:-8px; padding-left: 440px;">
+    <div class="flow-node orange">否</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">MySQL LambdaQueryWrapper</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">返回 Page&lt;Goods&gt;</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">商品搜索链路</div>
+      <table>
+        <tr><th>步骤</th><th>实现</th></tr>
+        <tr><td>1. 分词</td><td>ES IK analyzer（ik_max_word 索引 / ik_smart 搜索）</td></tr>
+        <tr><td>2. 查询</td><td>multi_match（title 权重 x3 + description），fuzziness=AUTO</td></tr>
+        <tr><td>3. 过滤</td><td>categoryId / type / condition / price 范围 / status=0</td></tr>
+        <tr><td>4. 高亮</td><td>title 和 description 字段 <code>&lt;em&gt;</code> 标签</td></tr>
+        <tr><td>5. 回查</td><td>ES 取 ID → MySQL <code>selectBatchIds</code> 按 ES 顺序返回</td></tr>
+        <tr><td>6. 降级</td><td>ES 不可用时自动走 MySQL LIKE 查询</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">商品生命周期</div>
+      <table>
+        <tr><th>状态</th><th>说明</th></tr>
+        <tr><td><span class="badge badge-green">0 在架</span></td><td>正常展示，可被搜索</td></tr>
+        <tr><td><span class="badge badge-orange">1 下架</span></td><td>手动下架或违规下架</td></tr>
+        <tr><td><span class="badge badge-blue">2 已售</span></td><td>交易完成</td></tr>
+        <tr><td><span class="badge badge-purple">3 待审</span></td><td>等待管理员审核</td></tr>
+      </table>
+      <div class="highlight-box" style="margin-top:12px">
+        擦亮机制：设置 <code>refresh_time = now()</code>，默认排序优先展示近期擦亮的商品，每天限 1 次
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">前端商品列表页构成</div>
+    <div class="grid-4">
+      <div class="feature-card">
+        <h4>搜索栏</h4>
+        <ul><li>el-input 绑定 keyword</li><li>回车触发 loadGoods()</li></ul>
+      </div>
+      <div class="feature-card">
+        <h4>分类导航</h4>
+        <ul><li>GET /api/categories</li><li>点击切换 categoryId</li></ul>
+      </div>
+      <div class="feature-card">
+        <h4>为你推荐</h4>
+        <ul><li>基于收藏品类个性化</li><li>按浏览量+想要数排序</li></ul>
+      </div>
+      <div class="feature-card">
+        <h4>瀑布流</h4>
+        <ul><li>4 列 CSS 瀑布流</li><li>一次加载 50 条</li></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 5. 即时聊天 ==================== -->
+<div class="section" id="chat">
+  <div class="section-title"><span class="num">5</span> 即时聊天系统</div>
+  <div class="section-desc">WebSocket 双向实时通信，先存库再推送</div>
+
+  <div class="flow">
+    <div class="flow-node">前端 ChatRoom</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">ws://host/ws/chat?token=xx</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">ChatWebSocketHandler</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">ChatService.sendMessage()</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">INSERT chat_message</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">WebSocket 推双方</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">sendMessage 事务流程</div>
+      <table>
+        <tr><td>①</td><td>BanService 检查封禁</td></tr>
+        <tr><td>②</td><td>校验会话归属（buyer/seller）</td></tr>
+        <tr><td>③</td><td>BlockService 检查拉黑</td></tr>
+        <tr><td>④</td><td>诈骗关键词检测（14 个敏感词）</td></tr>
+        <tr><td>⑤</td><td><code>messageMapper.insert(msg)</code> ← 落库</td></tr>
+        <tr><td>⑥</td><td>更新会话 lastMsg / lastTime</td></tr>
+        <tr><td>⑦</td><td><code>wsHandler.pushToUser(target)</code> ← 推给对方</td></tr>
+        <tr><td>⑧</td><td><code>wsHandler.pushToUser(sender)</code> ← 回传自己</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">消息类型 & 事件</div>
+      <table>
+        <tr><th>msgType</th><th>说明</th></tr>
+        <tr><td>0</td><td>文本消息</td></tr>
+        <tr><td>1</td><td>图片消息（extra 存 URL）</td></tr>
+        <tr><td>2</td><td>系统通知（senderId=0）</td></tr>
+        <tr><td>3</td><td>快捷交易动作（extra 存 JSON）</td></tr>
+      </table>
+      <table style="margin-top: 12px;">
+        <tr><th>WebSocket 事件</th><th>方向</th></tr>
+        <tr><td><code>send_msg</code></td><td>客户端 → 服务端</td></tr>
+        <tr><td><code>new_msg</code></td><td>服务端 → 双方</td></tr>
+        <tr><td><code>read</code></td><td>客户端 → 服务端</td></tr>
+        <tr><td><code>recall_msg</code></td><td>服务端 → 双方</td></tr>
+        <tr><td><code>typing</code></td><td>客户端 → 服务端 → 对方</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="highlight-box warn">
+    会话创建入口：商品详情页 "我想要" / "私聊沟通" → POST /api/chat/session → 去重(goodsId+buyerId) → 系统消息 "会话已建立"
+  </div>
+</div>
+
+<!-- ==================== 6. 交易订单 ==================== -->
+<div class="section" id="order">
+  <div class="section-title"><span class="num">6</span> 交易订单系统</div>
+  <div class="section-desc">自提 & 配送两种模式，完整状态机</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">线下自提流程</div>
+      <div class="flow" style="flex-wrap: wrap;">
+        <div class="flow-node">聊天中发起</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">卖家确认(0→1)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">生成核销码</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">线下自提</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node green">核销完成(1→3)</div>
+      </div>
+      <div class="highlight-box" style="margin-top:12px">
+        核销码：6 位随机数，买家在聊天中获取，卖家输入核销码完成交易
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">平台配送流程</div>
+      <div class="flow" style="flex-wrap: wrap;">
+        <div class="flow-node">聊天中发起</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">确认配送(→5)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">创建配送工单(→6)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">骑手接单(→7)</div>
+      </div>
+      <div class="flow" style="margin-top:-8px; padding-left: 280px; flex-wrap: wrap;">
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">取货(→8)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node">送达(→9)</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node green">确认收货(→3)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">订单状态码</div>
+    <table>
+      <tr><th>状态码</th><th>含义</th><th>适用类型</th></tr>
+      <tr><td><span class="badge badge-orange">0</span></td><td>待确认</td><td>自提</td></tr>
+      <tr><td><span class="badge badge-blue">1</span></td><td>已确认 / 待核销</td><td>自提</td></tr>
+      <tr><td><span class="badge badge-green">3</span></td><td>已完成</td><td>通用</td></tr>
+      <tr><td><span class="badge badge-red">4</span></td><td>已取消</td><td>通用</td></tr>
+      <tr><td><span class="badge badge-orange">5</span></td><td>待确认配送安排</td><td>配送</td></tr>
+      <tr><td><span class="badge badge-blue">6</span></td><td>待派单</td><td>配送</td></tr>
+      <tr><td><span class="badge badge-blue">7</span></td><td>已派单 / 待取货</td><td>配送</td></tr>
+      <tr><td><span class="badge badge-purple">8</span></td><td>配送中</td><td>配送</td></tr>
+      <tr><td><span class="badge badge-cyan">9</span></td><td>已送达 / 待确认收货</td><td>配送</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== 7. 配送系统 ==================== -->
+<div class="section" id="delivery">
+  <div class="section-title"><span class="num">7</span> 配送系统</div>
+  <div class="section-desc">校园跑腿派单大厅 + 物流轨迹追踪</div>
+
+  <div class="flow">
+    <div class="flow-node">配送工单创建</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">派单大厅展示</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">骑手抢单</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">取货拍照</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">物流轨迹更新</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">送达确认</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">配送工单状态</div>
+      <table>
+        <tr><td><span class="badge badge-orange">0 待接单</span></td><td>工单推送到派单大厅，等待骑手接单</td></tr>
+        <tr><td><span class="badge badge-blue">1 待取货</span></td><td>骑手已接单，前往卖家取货</td></tr>
+        <tr><td><span class="badge badge-purple">2 配送中</span></td><td>骑手已取货，前往买家处</td></tr>
+        <tr><td><span class="badge badge-green">3 已送达</span></td><td>骑手已送达，等待买家确认</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">物流轨迹 (delivery_track)</div>
+      <table>
+        <tr><th>action</th><th>说明</th></tr>
+        <tr><td><code>accept</code></td><td>骑手接单</td></tr>
+        <tr><td><code>pickup</code></td><td>骑手取货（含拍照存证）</td></tr>
+        <tr><td><code>deliver</code></td><td>商品送达（含拍照存证）</td></tr>
+        <tr><td><code>location</code></td><td>位置更新（经纬度）</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 8. 评价系统 ==================== -->
+<div class="section" id="review">
+  <div class="section-title"><span class="num">8</span> 评价系统</div>
+  <div class="section-desc">交易评价 + 申诉 + 回复 + 管理员审核</div>
+
+  <div class="flow">
+    <div class="flow-node">订单完成(状态3)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">"去评价" 按钮</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">POST /api/orders/review</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">INSERT review 表</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">评价功能</div>
+      <table>
+        <tr><td>创建评价</td><td>订单完成后，买卖双方互评，24h 内可修改/删除</td></tr>
+        <tr><td>评分</td><td>1-5 星</td></tr>
+        <tr><td>标签</td><td>JSON 数组：态度好、描述准确、发货快、物品成色好、沟通顺畅</td></tr>
+        <tr><td>回复</td><td>被评价者可回复一次</td></tr>
+        <tr><td>申诉</td><td>被评价者可提交申诉理由，管理员审核</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">管理员审核</div>
+      <table>
+        <tr><td>查看申诉列表</td><td>GET /api/admin/reviews/appeals</td></tr>
+        <tr><td>申诉通过</td><td>隐藏评价（status=0），appealStatus=2</td></tr>
+        <tr><td>申诉驳回</td><td>保留评价，appealStatus=3</td></tr>
+        <tr><td>手动屏蔽</td><td>管理员直接屏蔽/取消屏蔽评价</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 9. 社区论坛 ==================== -->
+<div class="section" id="forum">
+  <div class="section-title"><span class="num">9</span> 社区论坛</div>
+  <div class="section-desc">帖子 + 评论 + 点赞 + 收藏</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">论坛功能</div>
+      <table>
+        <tr><td>发帖</td><td>标题 + 内容 + 分类 + 图片（JSON 数组）</td></tr>
+        <tr><td>评论</td><td>支持两级评论（parent_id），支持图片</td></tr>
+        <tr><td>点赞</td><td>帖子和评论均可点赞</td></tr>
+        <tr><td>收藏</td><td>post_favorite 表</td></tr>
+        <tr><td>置顶</td><td>is_top 字段控制</td></tr>
+        <tr><td>搜索</td><td>MySQL FULLTEXT INDEX (ngram 分词)</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">帖子状态</div>
+      <table>
+        <tr><td><span class="badge badge-green">1 正常</span></td><td>正常展示</td></tr>
+        <tr><td><span class="badge badge-red">0 删除</span></td><td>逻辑删除</td></tr>
+      </table>
+      <div class="highlight-box" style="margin-top: 12px">
+        评论树：前端通过 <code>GET /api/forum/posts/{id}/comments/tree</code> 获取树形评论，递归渲染
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 10. AI 咨询 ==================== -->
+<div class="section" id="ai">
+  <div class="section-title"><span class="num">10</span> AI 智能咨询</div>
+  <div class="section-desc">RAG 检索增强生成 + SSE 流式推送</div>
+
+  <div class="flow">
+    <div class="flow-node">用户提问</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">POST /api/ai/chat/stream</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">Java SseEmitter</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node">Python FastAPI</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node orange">RAG 管道</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-node green">逐 token 推送</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">RAG 管道链路</div>
+    <div class="flow">
+      <div class="flow-node">用户问题</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-node">Query Rewrite</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-node">Embedding</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-node">ChromaDB 向量检索</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-node">BM25 关键词检索</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-node">Reranker 重排</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-node green">LLM 生成回答</div>
+    </div>
+    <div class="highlight-box" style="margin-top:12px">
+      知识库：文档 → 分块 → Embedding 存入 ChromaDB，支持 PDF/Word/TXT 导入
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">实时通信方式</div>
+      <table>
+        <tr><th>功能</th><th>协议</th></tr>
+        <tr><td>P2P 交易聊天</td><td><span class="badge badge-green">WebSocket</span> 双向</td></tr>
+        <tr><td>AI 流式回答</td><td><span class="badge badge-blue">SSE</span> 单向流式</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">AI 会话管理</div>
+      <table>
+        <tr><td>创建会话</td><td>POST /api/ai/sessions</td></tr>
+        <tr><td>会话列表</td><td>GET /api/ai/sessions</td></tr>
+        <tr><td>历史消息</td><td>GET /api/ai/sessions/{id}/messages</td></tr>
+        <tr><td>删除会话</td><td>DELETE /api/ai/sessions/{id}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 11. 管理后台 ==================== -->
+<div class="section" id="admin">
+  <div class="section-title"><span class="num">11</span> 管理后台</div>
+  <div class="section-desc">SaCheckRole("ADMIN") 权限控制</div>
+
+  <div class="grid-3">
+    <div class="feature-card">
+      <h4><span class="icon">📊</span> 数据看板</h4>
+      <ul>
+        <li>用户/商品/订单统计</li>
+        <li>待审核商品数</li>
+        <li>待处理纠纷数</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">👤</span> 用户管理</h4>
+      <ul>
+        <li>用户列表 / 搜索</li>
+        <li>封禁 / 解封</li>
+        <li>角色设置</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">📦</span> 商品审核</h4>
+      <ul>
+        <li>待审核商品列表</li>
+        <li>通过 / 驳回</li>
+        <li>下架违规商品</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">⭐</span> 评价管理</h4>
+      <ul>
+        <li>申诉列表</li>
+        <li>申诉通过（隐藏评价）</li>
+        <li>申诉驳回</li>
+        <li>手动屏蔽/取消屏蔽</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">⚠️</span> 纠纷仲裁</h4>
+      <ul>
+        <li>纠纷列表</li>
+        <li>查看证据图片</li>
+        <li>处理 / 驳回</li>
+      </ul>
+    </div>
+    <div class="feature-card">
+      <h4><span class="icon">🚫</span> 封禁管理</h4>
+      <ul>
+        <li>封禁记录列表</li>
+        <li>按类型封禁（all/trade/message/forum）</li>
+        <li>定时解封</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 12. 安全体系 ==================== -->
+<div class="section" id="safety">
+  <div class="section-title"><span class="num">12</span> 安全体系</div>
+  <div class="section-desc">多层安全防护</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">认证 & 授权</div>
+      <table>
+        <tr><td>Sa-Token</td><td>无状态 Token 认证，Redis 存储会话</td></tr>
+        <tr><td>角色控制</td><td>@SaCheckRole("ADMIN") 注解</td></tr>
+        <tr><td>公开路径</td><td>白名单配置（商品浏览、论坛阅读等）</td></tr>
+        <tr><td>WebSocket 认证</td><td>URL 参数 token + HandshakeInterceptor 校验</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">业务安全</div>
+      <table>
+        <tr><td>拉黑系统</td><td>user_block 表，双向检查，阻断聊天和会话创建</td></tr>
+        <tr><td>封禁系统</td><td>ban_record 表，支持 all/trade/message/forum 类型</td></tr>
+        <tr><td>诈骗检测</td><td>14 个敏感词（转账、微信支付等），命中注入系统警告</td></tr>
+        <tr><td>举报系统</td><td>report 表，支持举报商品/用户/消息</td></tr>
+        <tr><td>纠纷仲裁</td><td>dispute 表，支持证据图片上传</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 13. 数据库全表 ==================== -->
+<div class="section" id="database">
+  <div class="section-title"><span class="num">13</span> 数据库全表（20 张表）</div>
+  <div class="section-desc">MySQL 8.0，InnoDB 引擎，utf8mb4 字符集</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">用户 & 系统</div>
+      <table>
+        <tr><th>表名</th><th>说明</th><th>核心字段</th></tr>
+        <tr><td><code>user</code></td><td>用户表</td><td>username, password(BCrypt), role(0普通/1管理/2骑手)</td></tr>
+        <tr><td><code>address</code></td><td>收货地址</td><td>user_id, building, detail, is_default</td></tr>
+        <tr><td><code>follow</code></td><td>关注关系</td><td>follower_id, following_id</td></tr>
+        <tr><td><code>notification</code></td><td>通知消息</td><td>user_id, type, is_read</td></tr>
+        <tr><td><code>sys_config</code></td><td>系统配置</td><td>config_key, config_value</td></tr>
+        <tr><td><code>ban_record</code></td><td>封禁记录</td><td>target_value, ban_type, ban_until</td></tr>
+        <tr><td><code>announcement</code></td><td>系统公告</td><td>title, content, type</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">商品 & 交易</div>
+      <table>
+        <tr><th>表名</th><th>说明</th><th>核心字段</th></tr>
+        <tr><td><code>goods</code></td><td>商品</td><td>price, images(JSON), status(0在架/1下架/2售出/3待审)</td></tr>
+        <tr><td><code>category</code></td><td>商品分类</td><td>name, icon, sort_order</td></tr>
+        <tr><td><code>order</code></td><td>交易订单</td><td>deal_type(0自提/1配送), status, verify_code</td></tr>
+        <tr><td><code>delivery_order</code></td><td>配送工单</td><td>runner_id, seller_addr, buyer_addr</td></tr>
+        <tr><td><code>delivery_track</code></td><td>物流轨迹</td><td>action, latitude, longitude, photo_url</td></tr>
+        <tr><td><code>review</code></td><td>评价</td><td>rating(1-5), tags(JSON), appeal_status</td></tr>
+        <tr><td><code>dispute</code></td><td>纠纷仲裁</td><td>reason, evidence_images(JSON), status</td></tr>
+        <tr><td><code>report</code></td><td>举报</td><td>target_type, reason, status</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top: 16px;">
+    <div class="card">
+      <div class="card-title">聊天 & 收藏</div>
+      <table>
+        <tr><th>表名</th><th>说明</th><th>核心字段</th></tr>
+        <tr><td><code>chat_session</code></td><td>聊天会话</td><td>goods_id, buyer_id, seller_id, UNIQUE(goods_id, buyer_id)</td></tr>
+        <tr><td><code>chat_message</code></td><td>聊天消息</td><td>msg_type(0文本/1图片/2系统/3快捷), is_read, recall_time</td></tr>
+        <tr><td><code>favorite</code></td><td>商品收藏</td><td>user_id, goods_id</td></tr>
+        <tr><td><code>browse_history</code></td><td>浏览历史</td><td>user_id, goods_id</td></tr>
+        <tr><td><code>user_block</code></td><td>用户拉黑</td><td>user_id, blocked_user_id</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div class="card-title">论坛 & AI</div>
+      <table>
+        <tr><th>表名</th><th>说明</th><th>核心字段</th></tr>
+        <tr><td><code>post</code></td><td>论坛帖子</td><td>title, content, FULLTEXT(ngram)</td></tr>
+        <tr><td><code>comment</code></td><td>评论</td><td>post_id, parent_id(二级评论), images(JSON)</td></tr>
+        <tr><td><code>post_favorite</code></td><td>帖子收藏</td><td>user_id, post_id</td></tr>
+        <tr><td><code>ai_chat_session</code></td><td>AI 会话</td><td>user_id, title</td></tr>
+        <tr><td><code>ai_chat_message</code></td><td>AI 消息</td><td>role(user/assistant), sources(JSON)</td></tr>
+        <tr><td><code>crazy_thursday</code></td><td>疯狂星期四活动</td><td>week_key, winner_id, status</td></tr>
+        <tr><td><code>crazy_thursday_registration</code></td><td>报名记录</td><td>week_key, user_id, is_winner</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<div style="text-align: center; padding: 40px 0 60px; color: var(--text-muted); font-size: 13px;">
+  <div style="font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px;">校园生态平台 · 完整架构链路文档</div>
+  <div>Vue 3 · Spring Boot 3 · MySQL 8 · Redis 7 · Elasticsearch 8 · WebSocket · SSE · FastAPI · Docker</div>
+  <div style="margin-top: 8px;">20 张数据表 · 12 个功能模块 · 60+ API 接口 · 2 种实时通信协议</div>
+</div>
+
+</div><!-- container -->
+
+<script>
+// Simple scroll spy for TOC
+const tocLinks = document.querySelectorAll('.toc a');
+const sections = document.querySelectorAll('.section[id]');
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 200) current = s.id; });
+  tocLinks.forEach(a => { a.classList.toggle('active', a.getAttribute('href') === '#' + current); });
+});
+</script>
+</body>
+</html>

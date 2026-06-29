@@ -7,8 +7,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
-import com.campus.user.entity.User;
-import com.campus.user.mapper.UserMapper;
+import com.campus.common.entity.User;
+import com.campus.common.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

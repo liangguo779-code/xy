@@ -16,10 +16,10 @@ import com.campus.trade.mapper.OrderMapper;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.DeliveryTrackService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
-import com.campus.feign.user.UserFeignClient;
-import com.campus.feign.user.dto.UserVO;
-import com.campus.feign.user.dto.AddressVO;
-import com.campus.common.result.R;
+import com.campus.common.entity.User;
+import com.campus.common.entity.Address;
+import com.campus.common.mapper.UserMapper;
+import com.campus.common.mapper.AddressMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -41,7 +41,8 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     private final DeliveryOrderMapper deliveryMapper;
     private final DeliveryTrackMapper trackMapper;
     private final OrderMapper orderMapper;
-    private final UserFeignClient userFeignClient;
+    private final UserMapper userMapper;
+    private final AddressMapper addressMapper;
     private final ChatWebSocketHandler wsHandler;
     private final RedissonClient redisson;
     private final DeliveryTrackService deliveryTrackService;
@@ -79,19 +80,11 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     public DeliveryOrderVO acceptOrder(Long runnerId, Long deliveryId,
                                        java.math.BigDecimal lat, java.math.BigDecimal lng) {
         // 校验交付员角色
-        UserVO runner;
-        try {
-            R<UserVO> runnerResult = userFeignClient.getUserById(runnerId);
-            if (runnerResult.getCode() != 200 || runnerResult.getData() == null) {
-                throw new BusinessException(403, "用户不存在");
-            }
-            runner = runnerResult.getData();
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException(403, "用户服务不可用，请稍后重试");
+        User runnerUser = userMapper.selectById(runnerId);
+        if (runnerUser == null) {
+            throw new BusinessException(403, "用户不存在");
         }
-        if (runner.getRole() != 2 && runner.getRole() != 1) {
+        if (runnerUser.getRole() != null && runnerUser.getRole() != 2 && runnerUser.getRole() != 1) {
             throw new BusinessException(403, "只有交付员或管理员可以抢单");
         }
 
@@ -278,22 +271,22 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     private String getUserDormitory(Long userId) {
         // 优先用宿舍地址
         try {
-            R<UserVO> userResult = userFeignClient.getUserById(userId);
-            if (userResult.getCode() == 200 && userResult.getData() != null) {
-                UserVO user = userResult.getData();
-                if (user.getDormitory() != null && !user.getDormitory().isEmpty()) {
-                    return user.getDormitory();
-                }
+            User user = userMapper.selectById(userId);
+            if (user != null && user.getDormitory() != null && !user.getDormitory().isEmpty()) {
+                return user.getDormitory();
             }
         } catch (Exception e) {
             log.warn("查询用户信息失败: userId={}", userId, e);
         }
         // 没有则用默认收货地址
         try {
-            R<AddressVO> addrResult = userFeignClient.getDefaultAddress(userId);
-            if (addrResult.getCode() == 200 && addrResult.getData() != null) {
-                AddressVO addr = addrResult.getData();
-                return addr.getBuilding() + " " + addr.getDetail() + " (" + addr.getContactName() + " " + addr.getPhone() + ")";
+            Address address = addressMapper.selectOne(
+                    new LambdaQueryWrapper<Address>()
+                            .eq(Address::getUserId, userId)
+                            .eq(Address::getIsDefault, 1)
+                            .last("LIMIT 1"));
+            if (address != null) {
+                return address.getBuilding() + " " + address.getDetail() + " (" + address.getContactName() + " " + address.getPhone() + ")";
             }
         } catch (Exception e) {
             log.warn("查询用户默认地址失败: userId={}", userId, e);
@@ -325,12 +318,12 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         }
         if (d.getRunnerId() != null) {
             try {
-                R<UserVO> runnerResult = userFeignClient.getUserById(d.getRunnerId());
-                if (runnerResult.getCode() == 200 && runnerResult.getData() != null) {
-                    vo.setRunnerNickname(runnerResult.getData().getNickname());
+                User runner = userMapper.selectById(d.getRunnerId());
+                if (runner != null) {
+                    vo.setRunnerNickname(runner.getNickname());
                 }
             } catch (Exception e) {
-                // Feign 调用失败时忽略
+                // 查询失败时忽略
             }
         }
 

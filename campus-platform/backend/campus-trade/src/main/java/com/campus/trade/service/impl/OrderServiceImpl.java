@@ -17,11 +17,12 @@ import com.campus.trade.mapper.*;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.GoodsIndexService;
 import com.campus.trade.service.OrderService;
+import com.campus.trade.service.ReviewService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
-import com.campus.feign.user.UserFeignClient;
-import com.campus.feign.user.dto.AddressVO;
-import com.campus.feign.user.dto.UserVO;
-import com.campus.common.result.R;
+import com.campus.common.entity.User;
+import com.campus.common.entity.Address;
+import com.campus.common.mapper.UserMapper;
+import com.campus.common.mapper.AddressMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,7 +46,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     private final OrderMapper orderMapper;
     private final GoodsMapper goodsMapper;
-    private final UserFeignClient userFeignClient;
+    private final UserMapper userMapper;
+    private final AddressMapper addressMapper;
     private final ReviewMapper reviewMapper;
     private final DeliveryOrderMapper deliveryOrderMapper;
     private final DeliveryService deliveryService;
@@ -53,6 +55,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
     private final com.campus.common.service.NotificationService notificationService;
+    private final ReviewService reviewService;
 
     @Value("${delivery.service-fee:5.00}")
     private BigDecimal defaultServiceFee;
@@ -136,31 +139,30 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     ? LocalDateTime.parse(req.getPickupTime()) : null);
         } else {
             // 配送流程：校验双方地址
-            AddressVO buyerAddr = null;
-            try {
-                if (req.getAddressId() != null) {
-                    R<AddressVO> addrResult = userFeignClient.getAddress(actualBuyerId, req.getAddressId());
-                    if (addrResult.getCode() == 200 && addrResult.getData() != null) buyerAddr = addrResult.getData();
-                } else {
-                    R<AddressVO> addrResult = userFeignClient.getDefaultAddress(actualBuyerId);
-                    if (addrResult.getCode() == 200 && addrResult.getData() != null) buyerAddr = addrResult.getData();
-                }
-            } catch (Exception e) {
-                throw new BusinessException("查询买家地址失败，请稍后重试");
+            Address buyerAddress = null;
+            if (req.getAddressId() != null) {
+                buyerAddress = addressMapper.selectOne(
+                        new LambdaQueryWrapper<Address>()
+                                .eq(Address::getId, req.getAddressId())
+                                .eq(Address::getUserId, actualBuyerId));
+            } else {
+                buyerAddress = addressMapper.selectOne(
+                        new LambdaQueryWrapper<Address>()
+                                .eq(Address::getUserId, actualBuyerId)
+                                .eq(Address::getIsDefault, 1)
+                                .last("LIMIT 1"));
             }
-            if (buyerAddr == null) {
+            if (buyerAddress == null) {
                 throw new BusinessException("买家尚未添加收货地址，请先在收货地址中添加");
             }
 
-            try {
-                R<AddressVO> sellerAddrResult = userFeignClient.getDefaultAddress(sellerId);
-                if (sellerAddrResult.getCode() != 200 || sellerAddrResult.getData() == null) {
-                    throw new BusinessException("卖家尚未添加收货地址，无法发起配送");
-                }
-            } catch (BusinessException e) {
-                throw e;
-            } catch (Exception e) {
-                throw new BusinessException("查询卖家地址失败，请稍后重试");
+            Address sellerAddress = addressMapper.selectOne(
+                    new LambdaQueryWrapper<Address>()
+                            .eq(Address::getUserId, sellerId)
+                            .eq(Address::getIsDefault, 1)
+                            .last("LIMIT 1"));
+            if (sellerAddress == null) {
+                throw new BusinessException("卖家尚未添加收货地址，无法发起配送");
             }
 
             order.setStatus(OrderStatus.DELIVERY_NEGOTIATING.getCode());
@@ -416,37 +418,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     @Override
-    @Transactional
     public void createReview(Long reviewerId, CreateReviewReq req) {
-        Order order = getOrderById(req.getOrderId());
-        if (order.getStatus() != OrderStatus.COMPLETED.getCode()) {
-            throw new BusinessException("订单未完成，不能评价");
-        }
-        if (!order.getBuyerId().equals(reviewerId) && !order.getSellerId().equals(reviewerId)) {
-            throw new BusinessException(403, "无权操作");
-        }
-
-        Long targetId = order.getBuyerId().equals(reviewerId)
-                ? order.getSellerId() : order.getBuyerId();
-
-        // 检查是否已评价
-        Long count = reviewMapper.selectCount(
-                new LambdaQueryWrapper<Review>()
-                        .eq(Review::getOrderId, req.getOrderId())
-                        .eq(Review::getReviewerId, reviewerId)
-        );
-        if (count > 0) {
-            throw new BusinessException("已评价，不能重复评价");
-        }
-
-        Review review = new Review();
-        review.setOrderId(req.getOrderId());
-        review.setReviewerId(reviewerId);
-        review.setTargetId(targetId);
-        review.setRating(req.getRating());
-        review.setContent(req.getContent());
-        review.setTags(req.getTags());
-        reviewMapper.insert(review);
+        reviewService.createReview(reviewerId, req);
     }
 
     @Override
@@ -477,14 +450,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 只有买家、卖家、管理员可以查看订单详情
         if (!order.getBuyerId().equals(userId) && !order.getSellerId().equals(userId)) {
             // 检查是否是管理员
-            try {
-                R<UserVO> userResult = userFeignClient.getUserById(userId);
-                if (userResult.getCode() != 200 || userResult.getData() == null || userResult.getData().getRole() != 1) {
-                    throw new BusinessException(403, "无权查看此订单");
-                }
-            } catch (BusinessException e) {
-                throw e;
-            } catch (Exception e) {
+            User user = userMapper.selectById(userId);
+            if (user == null || !Integer.valueOf(1).equals(user.getRole())) {
                 throw new BusinessException(403, "无权查看此订单");
             }
         }
@@ -573,17 +540,17 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             }
         }
         try {
-            R<UserVO> buyerResult = userFeignClient.getUserById(order.getBuyerId());
-            if (buyerResult.getCode() == 200 && buyerResult.getData() != null) {
-                vo.setBuyerNickname(buyerResult.getData().getNickname());
+            User buyer = userMapper.selectById(order.getBuyerId());
+            if (buyer != null) {
+                vo.setBuyerNickname(buyer.getNickname());
             }
         } catch (Exception e) {
             log.warn("获取买家信息失败: {}", order.getBuyerId());
         }
         try {
-            R<UserVO> sellerResult = userFeignClient.getUserById(order.getSellerId());
-            if (sellerResult.getCode() == 200 && sellerResult.getData() != null) {
-                vo.setSellerNickname(sellerResult.getData().getNickname());
+            User seller = userMapper.selectById(order.getSellerId());
+            if (seller != null) {
+                vo.setSellerNickname(seller.getNickname());
             }
         } catch (Exception e) {
             log.warn("获取卖家信息失败: {}", order.getSellerId());

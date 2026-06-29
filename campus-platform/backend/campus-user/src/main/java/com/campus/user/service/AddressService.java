@@ -2,7 +2,7 @@ package com.campus.user.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.campus.user.dto.AddressReq;
-import com.campus.user.entity.Address;
+import com.campus.common.entity.Address;
 
 import java.util.List;
 

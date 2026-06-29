@@ -43,6 +43,10 @@
             <el-icon><Lock /></el-icon>
             <span>封禁管理</span>
           </el-menu-item>
+          <el-menu-item index="/admin/reviews">
+            <el-icon><Star /></el-icon>
+            <span>评价管理</span>
+          </el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group title="系统">
           <el-menu-item index="/admin/config">
@@ -75,7 +79,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document
+  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document, Star
 } from '@element-plus/icons-vue'
 
 const route = useRoute()

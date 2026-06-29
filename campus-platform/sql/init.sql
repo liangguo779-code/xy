@@ -2,6 +2,10 @@ CREATE DATABASE IF NOT EXISTS campus DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_uni
 
 USE campus;
 
+SET NAMES utf8mb4;
+SET CHARACTER_SET_CLIENT = utf8mb4;
+SET CHARACTER_SET_CONNECTION = utf8mb4;
+
 -- ============================================================
 -- 用户表
 -- ============================================================
@@ -178,16 +182,24 @@ CREATE TABLE IF NOT EXISTS `delivery_track` (
 -- 评价表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `review` (
-    `id`          BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `order_id`    BIGINT NOT NULL COMMENT '订单ID',
-    `reviewer_id` BIGINT NOT NULL COMMENT '评价者ID',
-    `target_id`   BIGINT NOT NULL COMMENT '被评价者ID',
-    `rating`      TINYINT NOT NULL COMMENT '评分 1-5',
-    `content`     VARCHAR(500) COMMENT '评价内容',
-    `tags`        JSON COMMENT '评价标签 ["态度好","描述准确"]',
-    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `id`            BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `order_id`      BIGINT NOT NULL COMMENT '订单ID',
+    `reviewer_id`   BIGINT NOT NULL COMMENT '评价者ID',
+    `target_id`     BIGINT NOT NULL COMMENT '被评价者ID',
+    `rating`        TINYINT NOT NULL COMMENT '评分 1-5',
+    `content`       VARCHAR(500) COMMENT '评价内容',
+    `tags`          JSON COMMENT '评价标签 ["态度好","描述准确"]',
+    `status`        TINYINT DEFAULT 1 COMMENT '1-正常 0-已屏蔽',
+    `appeal_reason` VARCHAR(500) COMMENT '申诉理由',
+    `appeal_status` TINYINT DEFAULT 0 COMMENT '0-无申诉 1-申诉中 2-申诉通过 3-申诉驳回',
+    `appeal_time`   DATETIME COMMENT '申诉时间',
+    `reply`         VARCHAR(500) COMMENT '被评价者回复',
+    `reply_time`    DATETIME COMMENT '回复时间',
+    `create_time`   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `update_time`   DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY `uk_order_reviewer` (`order_id`, `reviewer_id`),
-    INDEX `idx_target` (`target_id`)
+    INDEX `idx_target` (`target_id`),
+    INDEX `idx_appeal_status` (`appeal_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评价表';
 
 -- ============================================================

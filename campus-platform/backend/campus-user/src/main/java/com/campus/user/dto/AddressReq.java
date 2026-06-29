@@ -8,7 +8,7 @@ public class AddressReq {
 
     private Long id;
 
-    @NotBlank(message = "联系人不能为空")
+    @NotBlank(message = "联系人姓名不能为空")
     private String contactName;
 
     @NotBlank(message = "手机号不能为空")

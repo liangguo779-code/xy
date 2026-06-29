@@ -1,8 +1,11 @@
 package com.campus.trade.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.common.result.R;
+import com.campus.trade.dto.AppealReviewReq;
 import com.campus.trade.dto.CreateReviewReq;
+import com.campus.trade.dto.ReplyReviewReq;
 import com.campus.trade.entity.Review;
 import com.campus.trade.service.ReviewService;
 import jakarta.validation.Valid;
@@ -19,28 +22,17 @@ public class ReviewController {
 
     private final ReviewService reviewService;
 
-    // 创建评价接口统一使用 POST /api/orders/review
-
-    /**
-     * 获取某用户收到的评价
-     */
     @GetMapping("/user/{userId}")
     public R<List<Review>> getUserReviews(@PathVariable Long userId) {
         return R.ok(reviewService.getReviewsForUser(userId));
     }
 
-    /**
-     * 获取当前用户收到的评价
-     */
     @GetMapping("/me")
     public R<List<Review>> myReviews() {
         Long userId = StpUtil.getLoginIdAsLong();
         return R.ok(reviewService.getReviewsForUser(userId));
     }
 
-    /**
-     * 获取当前用户的平均评分
-     */
     @GetMapping("/me/rating")
     public R<Map<String, Object>> myRating() {
         Long userId = StpUtil.getLoginIdAsLong();
@@ -52,17 +44,27 @@ public class ReviewController {
         ));
     }
 
-    /**
-     * 获取某订单的评价
-     */
+    @GetMapping("/me/received")
+    public R<Page<Review>> myReceivedReviews(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(reviewService.getMyReceivedReviews(userId, null, page, size));
+    }
+
+    @GetMapping("/me/given")
+    public R<Page<Review>> myGivenReviews(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.ok(reviewService.getMyGivenReviews(userId, page, size));
+    }
+
     @GetMapping("/order/{orderId}")
     public R<List<Review>> getOrderReviews(@PathVariable Long orderId) {
         return R.ok(reviewService.getReviewsByOrder(orderId));
     }
 
-    /**
-     * 获取某用户的评价统计
-     */
     @GetMapping("/user/{userId}/stats")
     public R<Map<String, Object>> getUserStats(@PathVariable Long userId) {
         Double avg = reviewService.getAverageRating(userId);
@@ -76,9 +78,20 @@ public class ReviewController {
         ));
     }
 
-    /**
-     * 编辑评价（24小时内可修改）
-     */
+    @PostMapping("/{id}/appeal")
+    public R<Void> appealReview(@PathVariable Long id, @Valid @RequestBody AppealReviewReq req) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        reviewService.appealReview(userId, id, req.getReason());
+        return R.ok();
+    }
+
+    @PostMapping("/{id}/reply")
+    public R<Void> replyReview(@PathVariable Long id, @Valid @RequestBody ReplyReviewReq req) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        reviewService.replyReview(userId, id, req.getReply());
+        return R.ok();
+    }
+
     @PutMapping("/{id}")
     public R<Void> updateReview(@PathVariable Long id, @Valid @RequestBody CreateReviewReq req) {
         Long userId = StpUtil.getLoginIdAsLong();
@@ -86,9 +99,6 @@ public class ReviewController {
         return R.ok();
     }
 
-    /**
-     * 删除评价（24小时内可删除）
-     */
     @DeleteMapping("/{id}")
     public R<Void> deleteReview(@PathVariable Long id) {
         Long userId = StpUtil.getLoginIdAsLong();

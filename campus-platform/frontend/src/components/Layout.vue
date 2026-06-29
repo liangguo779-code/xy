@@ -64,6 +64,7 @@
               <el-dropdown-item @click="router.push('/orders')">我的订单</el-dropdown-item>
               <el-dropdown-item @click="router.push('/my-reports')">我的举报</el-dropdown-item>
               <el-dropdown-item @click="router.push('/my-disputes')">我的纠纷</el-dropdown-item>
+              <el-dropdown-item @click="router.push('/my-reviews')">我的评价</el-dropdown-item>
               <el-dropdown-item @click="router.push('/address')">收货地址</el-dropdown-item>
               <el-dropdown-item @click="goAdmin" v-if="userStore.userInfo.role === 1">管理后台</el-dropdown-item>
               <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>

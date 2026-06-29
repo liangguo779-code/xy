@@ -18,10 +18,11 @@ import com.campus.trade.mapper.GoodsMapper;
 import com.campus.trade.service.BlockService;
 import com.campus.trade.service.ChatService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
-import com.campus.feign.user.UserFeignClient;
-import com.campus.feign.user.dto.UserVO;
-import com.campus.common.result.R;
+import com.campus.common.entity.User;
+import com.campus.common.mapper.UserMapper;
+import com.campus.common.dto.UserVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,19 +37,19 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
     private final GoodsMapper goodsMapper;
-    private final UserFeignClient userFeignClient;
+    private final UserMapper userMapper;
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
     private final BlockService blockService;
 
     public ChatServiceImpl(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper,
-                           GoodsMapper goodsMapper, UserFeignClient userFeignClient,
+                           GoodsMapper goodsMapper, UserMapper userMapper,
                            @Lazy ChatWebSocketHandler wsHandler, BanService banService,
                            BlockService blockService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.goodsMapper = goodsMapper;
-        this.userFeignClient = userFeignClient;
+        this.userMapper = userMapper;
         this.wsHandler = wsHandler;
         this.banService = banService;
         this.blockService = blockService;
@@ -313,15 +314,14 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         Long otherUserId = session.getBuyerId().equals(currentUserId)
                 ? session.getSellerId() : session.getBuyerId();
         try {
-            R<UserVO> otherResult = userFeignClient.getUserById(otherUserId);
-            if (otherResult.getCode() == 200 && otherResult.getData() != null) {
-                UserVO other = otherResult.getData();
+            User other = userMapper.selectById(otherUserId);
+            if (other != null) {
                 vo.setOtherUserId(other.getId());
                 vo.setOtherNickname(other.getNickname());
                 vo.setOtherAvatar(other.getAvatar());
             }
         } catch (Exception e) {
-            // Feign 调用失败时忽略
+            // 查询失败时忽略
         }
 
         // 商品信息
@@ -369,13 +369,13 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
 
         if (msg.getSenderId() > 0) {
             try {
-                R<UserVO> senderResult = userFeignClient.getUserById(msg.getSenderId());
-                if (senderResult.getCode() == 200 && senderResult.getData() != null) {
-                    vo.setSenderNickname(senderResult.getData().getNickname());
-                    vo.setSenderAvatar(senderResult.getData().getAvatar());
+                User sender = userMapper.selectById(msg.getSenderId());
+                if (sender != null) {
+                    vo.setSenderNickname(sender.getNickname());
+                    vo.setSenderAvatar(sender.getAvatar());
                 }
             } catch (Exception e) {
-                // Feign 调用失败时忽略
+                // 查询失败时忽略
             }
         } else {
             vo.setSenderNickname("系统");

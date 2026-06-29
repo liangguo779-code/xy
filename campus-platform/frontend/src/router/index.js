@@ -42,6 +42,7 @@ const routes = [
       { path: 'browse-history', name: 'BrowseHistory', component: () => import('@/views/user/BrowseHistory.vue') },
       { path: 'my-reports', name: 'MyReports', component: () => import('@/views/user/MyReports.vue') },
       { path: 'my-disputes', name: 'MyDisputes', component: () => import('@/views/user/MyDisputes.vue') },
+      { path: 'my-reviews', name: 'MyReviews', component: () => import('@/views/user/MyReviews.vue') },
       { path: 'notifications', name: 'Notifications', component: () => import('@/views/user/NotificationList.vue') },
       { path: 'dispatch', name: 'DispatchHall', component: () => import('@/views/delivery/DispatchHall.vue') }
     ]
@@ -57,6 +58,7 @@ const routes = [
       { path: 'orders', name: 'AdminOrders', component: () => import('@/views/admin/OrderMonitor.vue') },
       { path: 'disputes', name: 'AdminDisputes', component: () => import('@/views/admin/DisputeManage.vue') },
       { path: 'reports', name: 'AdminReports', component: () => import('@/views/admin/ReportManage.vue') },
+      { path: 'reviews', name: 'AdminReviews', component: () => import('@/views/admin/ReviewManage.vue') },
       { path: 'bans', name: 'AdminBans', component: () => import('@/views/admin/BanManage.vue') },
       { path: 'forum', name: 'AdminForum', component: () => import('@/views/admin/ForumManage.vue') },
       { path: 'config', name: 'AdminConfig', component: () => import('@/views/admin/SystemConfig.vue') },

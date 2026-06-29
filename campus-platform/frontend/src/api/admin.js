@@ -58,6 +58,20 @@ export function handleReport(id, data) {
   return request.put(`/api/admin/reports/${id}/handle`, data)
 }
 
+// 评价管理
+export function getReviewAppeals(params) {
+  return request.get('/api/admin/reviews/appeals', { params })
+}
+export function handleReviewAppeal(id, data) {
+  return request.put(`/api/admin/reviews/${id}/appeal`, data)
+}
+export function updateReviewStatus(id, data) {
+  return request.put(`/api/admin/reviews/${id}/status`, data)
+}
+export function getReviewStats() {
+  return request.get('/api/admin/reviews/stats')
+}
+
 // 知识库管理
 export function getKnowledgeList() {
   return request.get('/api/admin/knowledge/list')

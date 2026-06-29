@@ -7,8 +7,8 @@ import com.campus.common.entity.BanRecord;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
 import com.campus.common.service.BanService;
-import com.campus.feign.user.UserFeignClient;
-import com.campus.feign.user.dto.UserVO;
+import com.campus.common.entity.User;
+import com.campus.common.mapper.UserMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -26,16 +26,14 @@ import java.util.Map;
 public class AdminBanController {
 
     private final BanService banService;
-    private final UserFeignClient userFeignClient;
+    private final UserMapper userMapper;
 
     @PostMapping("/user")
     public R<Void> banUser(@Valid @RequestBody BanUserReq req) {
         // 不能封禁管理员
-        R<UserVO> userResult = userFeignClient.getUserById(req.userId);
-        if (userResult.getCode() == 200 && userResult.getData() != null) {
-            if (userResult.getData().getRole() == 1) {
-                throw new BusinessException("不能封禁管理员用户");
-            }
+        User user = userMapper.selectById(req.userId);
+        if (user != null && Integer.valueOf(1).equals(user.getRole())) {
+            throw new BusinessException("不能封禁管理员用户");
         }
         Long currentUserId = StpUtil.getLoginIdAsLong();
         if (req.userId.equals(currentUserId)) {

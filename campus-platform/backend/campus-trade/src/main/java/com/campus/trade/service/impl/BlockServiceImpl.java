@@ -4,13 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.common.exception.BusinessException;
-import com.campus.common.result.R;
 import com.campus.trade.entity.Block;
+import com.campus.common.entity.User;
 import com.campus.trade.mapper.BlockMapper;
+import com.campus.common.mapper.UserMapper;
 import com.campus.trade.service.BlockService;
-import com.campus.feign.user.UserFeignClient;
-import com.campus.feign.user.dto.UserVO;
+import com.campus.common.dto.UserVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +23,7 @@ import java.util.List;
 public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements BlockService {
 
     private final BlockMapper blockMapper;
-    private final UserFeignClient userFeignClient;
+    private final UserMapper userMapper;
 
     @Override
     @Transactional
@@ -30,7 +31,6 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
         if (userId.equals(blockedUserId)) {
             throw new BusinessException("不能拉黑自己");
         }
-        // 检查是否已拉黑
         Long count = blockMapper.selectCount(
                 new LambdaQueryWrapper<Block>()
                         .eq(Block::getUserId, userId)
@@ -79,13 +79,11 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
 
         List<UserVO> users = new ArrayList<>();
         for (Block block : blockPage.getRecords()) {
-            try {
-                R<UserVO> result = userFeignClient.getUserById(block.getBlockedUserId());
-                if (result.getCode() == 200 && result.getData() != null) {
-                    users.add(result.getData());
-                }
-            } catch (Exception e) {
-                // Feign 调用失败时跳过
+            User user = userMapper.selectById(block.getBlockedUserId());
+            if (user != null) {
+                UserVO vo = new UserVO();
+                BeanUtils.copyProperties(user, vo);
+                users.add(vo);
             }
         }
 

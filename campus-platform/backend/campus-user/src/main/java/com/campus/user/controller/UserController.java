@@ -3,6 +3,7 @@ package com.campus.user.controller;
 import cn.dev33.satoken.stp.StpUtil;
 import com.campus.common.result.R;
 import com.campus.user.dto.*;
+import com.campus.common.dto.UserVO;
 import com.campus.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

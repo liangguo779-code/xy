@@ -10,9 +10,8 @@ import com.campus.trade.mapper.DeliveryOrderMapper;
 import com.campus.trade.mapper.DeliveryTrackMapper;
 import com.campus.trade.mapper.OrderMapper;
 import com.campus.trade.service.DeliveryTrackService;
-import com.campus.feign.user.UserFeignClient;
-import com.campus.feign.user.dto.UserVO;
-import com.campus.common.result.R;
+import com.campus.common.entity.User;
+import com.campus.common.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -26,7 +25,7 @@ public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, D
     private final DeliveryTrackMapper trackMapper;
     private final DeliveryOrderMapper deliveryMapper;
     private final OrderMapper orderMapper;
-    private final UserFeignClient userFeignClient;
+    private final UserMapper userMapper;
 
     @Override
     public void addTrack(Long deliveryId, Long runnerId, String action,
@@ -65,12 +64,10 @@ public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, D
         boolean isRunner = delivery.getRunnerId() != null && delivery.getRunnerId().equals(userId);
         boolean isAdmin = false;
         try {
-            R<UserVO> userResult = userFeignClient.getUserById(userId);
-            if (userResult.getCode() == 200 && userResult.getData() != null) {
-                isAdmin = userResult.getData().getRole() == 1;
-            }
+            User user = userMapper.selectById(userId);
+            isAdmin = user != null && Integer.valueOf(1).equals(user.getRole());
         } catch (Exception e) {
-            // Feign 调用失败时忽略
+            // 查询失败时忽略
         }
 
         if (!isParticipant && !isRunner && !isAdmin) {
