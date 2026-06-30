@@ -1,96 +1,127 @@
 <template>
-  <div class="forgot-container">
-    <el-card class="forgot-card">
-      <template #header>
-        <h2 class="title">密码找回</h2>
-      </template>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="brand">
+        <h1>找回密码</h1>
+        <p>通过邮箱验证码重置你的密码</p>
+      </div>
 
-      <el-steps :active="step" finish-status="success" style="margin-bottom: 24px">
-        <el-step title="验证手机号" />
-        <el-step title="重置密码" />
-        <el-step title="完成" />
-      </el-steps>
+      <!-- Step 0: 邮箱 + 验证码 -->
+      <el-form v-if="step === 0" ref="step1Ref" :model="form" :rules="step1Rules" label-width="0">
+        <div class="floating-label" :class="{ active: form.email, focused: emailFocused }">
+          <label>邮箱</label>
+          <el-input
+            v-model="form.email" size="large" autocomplete="email"
+            @focus="emailFocused = true" @blur="emailFocused = false"
+          />
+        </div>
 
-      <!-- Step 1: 输入手机号+验证码 -->
-      <div v-if="step === 0">
-        <el-form :model="form" :rules="step1Rules" ref="step1Ref" label-width="0">
-          <el-form-item prop="phone">
-            <el-input v-model="form.phone" placeholder="请输入注册手机号" size="large"
-                      :prefix-icon="Iphone" />
-          </el-form-item>
-          <el-form-item prop="code">
-            <div class="code-row">
-              <el-input v-model="form.code" placeholder="验证码" size="large" />
-              <el-button size="large" :disabled="countdown > 0" @click="handleSendCode">
-                {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
-              </el-button>
-            </div>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" size="large" style="width: 100%" @click="handleVerifyCode">
-              下一步
+        <div class="captcha-row">
+          <div class="captcha-img-wrap" @click="refreshCaptcha">
+            <img v-if="captchaImage" :src="captchaImage" class="captcha-img" alt="验证码" />
+            <span v-else class="captcha-loading">加载中...</span>
+          </div>
+          <el-input v-model="form.captchaAnswer" placeholder="计算结果" size="large" maxlength="4" />
+        </div>
+
+        <div class="floating-label" :class="{ active: form.code, focused: codeFocused }">
+          <label>邮箱验证码</label>
+          <div class="code-row">
+            <el-input
+              v-model="form.code" size="large" maxlength="6" autocomplete="one-time-code"
+              @focus="codeFocused = true" @blur="codeFocused = false"
+            />
+            <el-button class="send-code-btn" size="large" :disabled="countdown > 0" :loading="sendingCode" @click="handleSendCode">
+              {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
             </el-button>
-          </el-form-item>
-        </el-form>
+          </div>
+        </div>
+
+        <el-button type="primary" size="large" class="submit-btn" @click="handleNext">
+          下一步
+        </el-button>
+      </el-form>
+
+      <!-- Step 1: 设置新密码 -->
+      <el-form v-if="step === 1" ref="step2Ref" :model="form" :rules="step2Rules" label-width="0">
+        <div class="floating-label" :class="{ active: form.newPassword, focused: newPwdFocused }">
+          <label>新密码</label>
+          <el-input
+            v-model="form.newPassword" type="password" size="large" show-password autocomplete="new-password"
+            @focus="newPwdFocused = true" @blur="newPwdFocused = false"
+          />
+        </div>
+
+        <div class="floating-label" :class="{ active: form.confirmPassword, focused: confirmPwdFocused }">
+          <label>确认新密码</label>
+          <el-input
+            v-model="form.confirmPassword" type="password" size="large" show-password autocomplete="new-password"
+            @focus="confirmPwdFocused = true" @blur="confirmPwdFocused = false"
+          />
+        </div>
+
+        <el-button type="primary" size="large" class="submit-btn" :loading="submitting" @click="handleReset">
+          重置密码
+        </el-button>
+      </el-form>
+
+      <!-- Step 2: 完成 -->
+      <div v-if="step === 2" class="success-state">
+        <div class="success-icon">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="32" fill="#e8f5e9"/>
+            <path d="M20 33l8 8 16-16" stroke="#34a853" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h2>密码重置成功</h2>
+        <p>请使用新密码登录你的账号</p>
+        <el-button type="primary" size="large" class="submit-btn" @click="router.push('/login')">
+          去登录
+        </el-button>
       </div>
 
-      <!-- Step 2: 设置新密码 -->
-      <div v-if="step === 1">
-        <el-form :model="form" :rules="step2Rules" ref="step2Ref" label-width="0">
-          <el-form-item prop="newPassword">
-            <el-input v-model="form.newPassword" type="password" placeholder="新密码 (6-20位)"
-                      size="large" show-password :prefix-icon="Lock" />
-          </el-form-item>
-          <el-form-item prop="confirmPassword">
-            <el-input v-model="form.confirmPassword" type="password" placeholder="确认新密码"
-                      size="large" show-password :prefix-icon="Lock" />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" size="large" style="width: 100%"
-                       :loading="submitting" @click="handleReset">
-              重置密码
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- Step 3: 完成 -->
-      <div v-if="step === 2" style="text-align: center; padding: 40px 0">
-        <el-icon :size="64" color="#67c23a"><CircleCheckFilled /></el-icon>
-        <h3>密码重置成功</h3>
-        <p style="color: #909399">请使用新密码登录</p>
-        <el-button type="primary" @click="router.push('/login')">去登录</el-button>
-      </div>
-
-      <div style="text-align: center; margin-top: 16px">
+      <div v-if="step < 2" class="bottom-link">
         <router-link to="/login">返回登录</router-link>
       </div>
-    </el-card>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Iphone, Lock, CircleCheckFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { getCaptcha, sendResetCode, resetPassword } from '@/api/auth'
 
 const router = useRouter()
 const step = ref(0)
 const countdown = ref(0)
+const sendingCode = ref(false)
 const submitting = ref(false)
 const step1Ref = ref()
 const step2Ref = ref()
 
+const emailFocused = ref(false)
+const codeFocused = ref(false)
+const newPwdFocused = ref(false)
+const confirmPwdFocused = ref(false)
+
+const captchaId = ref('')
+const captchaImage = ref('')
+
 const form = ref({
-  phone: '',
+  email: '',
   code: '',
+  captchaAnswer: '',
   newPassword: '',
   confirmPassword: ''
 })
 
 const step1Rules = {
-  phone: [{ required: true, message: '请输入手机号', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
+  ],
   code: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
 }
 
@@ -114,25 +145,44 @@ const step2Rules = {
   ]
 }
 
+async function refreshCaptcha() {
+  try {
+    const res = await getCaptcha()
+    captchaId.value = res.data.captchaId
+    captchaImage.value = res.data.image
+    form.value.captchaAnswer = ''
+  } catch (e) {
+    // handled
+  }
+}
+
 async function handleSendCode() {
-  if (!form.value.phone) {
-    ElMessage.warning('请输入手机号')
+  try { await step1Ref.value.validateField('email') } catch { return }
+  if (!form.value.captchaAnswer) {
+    ElMessage.warning('请先完成人机验证')
     return
   }
+  sendingCode.value = true
   try {
-    await fetch(`/api/auth/send-code?phone=${form.value.phone}`, { method: 'POST' })
-    ElMessage.success('验证码已发送')
+    await sendResetCode({
+      email: form.value.email,
+      captchaId: captchaId.value,
+      captchaAnswer: form.value.captchaAnswer,
+    })
+    ElMessage.success('验证码已发送到邮箱')
     countdown.value = 60
     const timer = setInterval(() => {
       countdown.value--
       if (countdown.value <= 0) clearInterval(timer)
     }, 1000)
   } catch (e) {
-    ElMessage.error('发送失败')
+    refreshCaptcha()
+  } finally {
+    sendingCode.value = false
   }
 }
 
-async function handleVerifyCode() {
+async function handleNext() {
   await step1Ref.value.validate()
   step.value = 1
 }
@@ -141,54 +191,229 @@ async function handleReset() {
   await step2Ref.value.validate()
   submitting.value = true
   try {
-    const res = await fetch('/api/auth/reset-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone: form.value.phone,
-        code: form.value.code,
-        newPassword: form.value.newPassword
-      })
+    await resetPassword({
+      email: form.value.email,
+      code: form.value.code,
+      newPassword: form.value.newPassword,
     })
-    const data = await res.json()
-    if (data.code === 200) {
-      step.value = 2
-    } else {
-      ElMessage.error(data.msg)
-    }
+    step.value = 2
   } catch (e) {
-    ElMessage.error('重置失败')
+    // handled
   } finally {
     submitting.value = false
   }
 }
+
+onMounted(refreshCaptcha)
 </script>
 
 <style scoped>
-.forgot-container {
+.auth-page {
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f8f9fa;
+  padding: 20px;
 }
 
-.forgot-card {
-  width: 460px;
+.auth-card {
+  width: 440px;
+  background: #fff;
+  border-radius: 28px;
+  padding: 48px 40px 36px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.08);
 }
 
-.title {
+.brand {
   text-align: center;
+  margin-bottom: 36px;
+}
+
+.brand h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 600;
+  color: #1a1a2e;
+  letter-spacing: -0.5px;
+}
+
+.brand p {
   margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.floating-label {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.floating-label label {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: #9ca3af;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  background: #fff;
+  padding: 0 4px;
+  z-index: 1;
+}
+
+.floating-label.active label,
+.floating-label.focused label {
+  top: 0;
+  font-size: 12px;
+  color: #4285f4;
+}
+
+.floating-label :deep(.el-input__wrapper) {
+  border-radius: 12px;
+  padding: 4px 16px;
+  box-shadow: 0 0 0 1.5px #e5e7eb;
+  transition: box-shadow 0.2s;
+}
+
+.floating-label :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1.5px #d1d5db;
+}
+
+.floating-label :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px #4285f4;
+}
+
+.floating-label :deep(.el-input__inner) {
+  font-size: 14px;
+  height: 22px;
+}
+
+.captcha-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.captcha-img-wrap {
+  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1.5px solid #e5e7eb;
+  flex-shrink: 0;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.captcha-img {
+  height: 42px;
+  display: block;
+}
+
+.captcha-loading {
+  padding: 0 12px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.captcha-row :deep(.el-input__wrapper) {
+  border-radius: 12px;
+  padding: 4px 16px;
+  box-shadow: 0 0 0 1.5px #e5e7eb;
+}
+
+.captcha-row :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px #4285f4;
 }
 
 .code-row {
   display: flex;
-  gap: 12px;
-  width: 100%;
+  gap: 8px;
 }
 
 .code-row .el-input {
   flex: 1;
+}
+
+.send-code-btn {
+  min-width: 110px;
+  height: 100%;
+  border-radius: 12px;
+  font-weight: 500;
+  border: 1.5px solid #4285f4;
+  color: #4285f4;
+  background: #fff;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.send-code-btn:hover:not(:disabled) {
+  background: #f0f6ff;
+}
+
+.send-code-btn:disabled {
+  border-color: #d1d5db;
+  color: #9ca3af;
+}
+
+.submit-btn {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4285f4, #6366f1);
+  border: none;
+  letter-spacing: 1px;
+  margin-top: 8px;
+  transition: all 0.2s;
+}
+
+.submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(66, 133, 244, 0.35);
+}
+
+.success-state {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.success-icon {
+  margin-bottom: 20px;
+}
+
+.success-state h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.success-state p {
+  margin: 0 0 28px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.bottom-link {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.bottom-link a {
+  color: #4285f4;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.bottom-link a:hover {
+  text-decoration: underline;
 }
 </style>

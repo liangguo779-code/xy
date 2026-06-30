@@ -10,6 +10,7 @@ import com.campus.user.dto.*;
 import com.campus.common.dto.UserVO;
 import com.campus.common.entity.User;
 import com.campus.common.mapper.UserMapper;
+import com.campus.user.service.EmailService;
 import com.campus.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -25,8 +26,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final PasswordEncoder passwordEncoder;
     private final StringRedisTemplate redisTemplate;
+    private final EmailService emailService;
 
     private static final String RESET_CODE_KEY = "reset_code:";
+    private static final String EMAIL_CODE_KEY = "email_code:";
     private static final int CODE_EXPIRE_MINUTES = 5;
 
     @Override
@@ -55,18 +58,35 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public void register(RegisterReq req) {
-        User existing = getByUsername(req.getUsername());
-        if (existing != null) {
-            throw new BusinessException("用户名已存在");
+        String email = req.getEmail();
+
+        // 1. 校验邮箱验证码
+        String cachedCode = redisTemplate.opsForValue().get(EMAIL_CODE_KEY + email);
+        if (cachedCode == null) {
+            throw new BusinessException("验证码已过期，请重新获取");
+        }
+        if (!cachedCode.equals(req.getCode())) {
+            throw new BusinessException("验证码错误");
         }
 
+        // 2. 检查邮箱是否已注册（username = email）
+        User existing = getByUsername(email);
+        if (existing != null) {
+            throw new BusinessException("该邮箱已注册");
+        }
+
+        // 3. 创建用户
         User user = new User();
-        user.setUsername(req.getUsername());
+        user.setUsername(email);
         user.setPassword(passwordEncoder.encode(req.getPassword()));
-        user.setNickname(req.getNickname() != null ? req.getNickname() : req.getUsername());
+        user.setNickname(req.getNickname() != null && !req.getNickname().isBlank()
+                ? req.getNickname() : email.split("@")[0]);
         user.setRole(0);
         user.setStatus(1);
         save(user);
+
+        // 4. 删除已使用的验证码
+        redisTemplate.delete(EMAIL_CODE_KEY + email);
     }
 
     @Override
@@ -131,11 +151,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public void sendResetCode(String phone) {
-        // 校验手机号是否存在
-        User user = getOne(new LambdaQueryWrapper<User>().eq(User::getPhone, phone));
+    public void sendResetCode(String email) {
+        // 校验邮箱是否存在
+        User user = getByUsername(email);
         if (user == null) {
-            throw new BusinessException("该手机号未注册");
+            throw new BusinessException("该邮箱未注册");
         }
 
         // 生成6位验证码
@@ -143,21 +163,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         // 存入Redis，5分钟过期
         redisTemplate.opsForValue().set(
-                RESET_CODE_KEY + phone,
+                RESET_CODE_KEY + email,
                 code,
                 CODE_EXPIRE_MINUTES,
                 TimeUnit.MINUTES
         );
 
-        // TODO: 对接短信服务商发送验证码
-        // 目前在日志中输出，方便开发测试
-        System.out.println("【验证码】手机号: " + phone + ", 验证码: " + code + " (5分钟内有效)");
+        // 发送邮件
+        emailService.sendVerificationCode(email, code);
     }
 
     @Override
     public void resetPassword(ResetPasswordReq req) {
+        String email = req.getEmail();
+
         // 验证码校验
-        String cachedCode = redisTemplate.opsForValue().get(RESET_CODE_KEY + req.getPhone());
+        String cachedCode = redisTemplate.opsForValue().get(RESET_CODE_KEY + email);
         if (cachedCode == null) {
             throw new BusinessException("验证码已过期，请重新获取");
         }
@@ -165,8 +186,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException("验证码错误");
         }
 
-        // 查找用户
-        User user = getOne(new LambdaQueryWrapper<User>().eq(User::getPhone, req.getPhone()));
+        // 查找用户（username = email）
+        User user = getByUsername(email);
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
@@ -176,7 +197,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         updateById(user);
 
         // 删除已使用的验证码
-        redisTemplate.delete(RESET_CODE_KEY + req.getPhone());
+        redisTemplate.delete(RESET_CODE_KEY + email);
 
         // 清除该用户所有会话
         StpUtil.logout(user.getId());

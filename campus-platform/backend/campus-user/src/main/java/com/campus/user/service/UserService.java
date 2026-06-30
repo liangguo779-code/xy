@@ -24,7 +24,7 @@ public interface UserService extends IService<User> {
     void changePassword(Long userId, ChangePasswordReq req);
 
     /** 密码找回 - 发送验证码 */
-    void sendResetCode(String phone);
+    void sendResetCode(String email);
 
     /** 密码找回 - 重置密码 */
     void resetPassword(ResetPasswordReq req);

@@ -1,44 +1,47 @@
 <template>
-  <div class="login-container">
-    <!-- 装饰圆点 -->
-    <div class="decoration">
-      <div class="circle circle-1"></div>
-      <div class="circle circle-2"></div>
-      <div class="circle circle-3"></div>
-      <div class="circle circle-4"></div>
-    </div>
-
-    <el-card class="login-card">
-      <div class="card-header">
-        <div class="brand-icon">🎓</div>
-        <h2 class="title">欢迎回来</h2>
-        <p class="subtitle">登录校园生态平台</p>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="brand">
+        <h1>登录</h1>
+        <p>使用你的校园平台账号</p>
       </div>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="0">
-        <el-form-item prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名" :prefix-icon="User" size="large" />
-        </el-form-item>
-        <el-form-item prop="password">
-          <el-input v-model="form.password" type="password" placeholder="请输入密码" :prefix-icon="Lock" size="large" show-password />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" size="large" class="login-btn" :loading="loading" @click="handleLogin">
-            登 录
-          </el-button>
-        </el-form-item>
-        <div class="footer">
-          <div>还没有账号？<router-link to="/register">立即注册</router-link></div>
-          <div style="margin-top: 8px"><router-link to="/forgot-password">忘记密码？</router-link></div>
+
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="0" @submit.prevent="handleLogin">
+        <div class="floating-label" :class="{ active: form.username, focused: usernameFocused }">
+          <label>邮箱</label>
+          <el-input
+            v-model="form.username" size="large" autocomplete="username"
+            @focus="usernameFocused = true" @blur="usernameFocused = false"
+          />
         </div>
+
+        <div class="floating-label" :class="{ active: form.password, focused: passwordFocused }">
+          <label>密码</label>
+          <el-input
+            v-model="form.password" type="password" size="large" show-password autocomplete="current-password"
+            @focus="passwordFocused = true" @blur="passwordFocused = false"
+          />
+        </div>
+
+        <div class="form-links">
+          <router-link to="/forgot-password">忘记密码？</router-link>
+        </div>
+
+        <el-button type="primary" size="large" class="submit-btn" :loading="loading" @click="handleLogin">
+          登 录
+        </el-button>
       </el-form>
-    </el-card>
+
+      <div class="bottom-link">
+        还没有账号？<router-link to="/register">创建账号</router-link>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
@@ -47,9 +50,11 @@ const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
 const form = ref({ username: '', password: '' })
+const usernameFocused = ref(false)
+const passwordFocused = ref(false)
 
 const rules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  username: [{ required: true, message: '请输入邮箱', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
@@ -61,7 +66,7 @@ async function handleLogin() {
     ElMessage.success('登录成功')
     router.push('/')
   } catch (e) {
-    // 错误已在拦截器中处理
+    // handled
   } finally {
     loading.value = false
   }
@@ -69,129 +74,135 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.login-container {
+.auth-page {
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  position: relative;
-  overflow: hidden;
+  background: #f8f9fa;
+  padding: 20px;
 }
 
-.decoration {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.circle {
-  position: absolute;
-  border-radius: 50%;
-  opacity: 0.15;
-  animation: float 8s ease-in-out infinite;
-}
-
-.circle-1 {
-  width: 200px;
-  height: 200px;
+.auth-card {
+  width: 440px;
   background: #fff;
-  top: 10%;
-  left: 10%;
-  animation-delay: 0s;
+  border-radius: 28px;
+  padding: 48px 40px 36px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.08);
 }
 
-.circle-2 {
-  width: 120px;
-  height: 120px;
-  background: #5B8FF9;
-  top: 60%;
-  right: 15%;
-  animation-delay: -2s;
-}
-
-.circle-3 {
-  width: 80px;
-  height: 80px;
-  background: #F5A623;
-  bottom: 20%;
-  left: 20%;
-  animation-delay: -4s;
-}
-
-.circle-4 {
-  width: 150px;
-  height: 150px;
-  background: #fff;
-  top: 20%;
-  right: 20%;
-  animation-delay: -6s;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  33% { transform: translateY(-20px) rotate(5deg); }
-  66% { transform: translateY(10px) rotate(-3deg); }
-}
-
-.login-card {
-  width: 420px;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-  position: relative;
-  z-index: 1;
-  overflow: visible;
-}
-
-.login-card :deep(.el-card__body) {
-  padding: 32px;
-}
-
-.card-header {
+.brand {
   text-align: center;
-  margin-bottom: 28px;
+  margin-bottom: 36px;
 }
 
-.brand-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+.brand h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 600;
+  color: #1a1a2e;
+  letter-spacing: -0.5px;
 }
 
-.title {
-  margin: 0 0 4px;
-  font-size: 24px;
-  font-weight: 700;
-  color: #1D2129;
-}
-
-.subtitle {
+.brand p {
   margin: 0;
   font-size: 14px;
-  color: #86909C;
+  color: #6b7280;
 }
 
-.login-btn {
-  width: 100%;
-  height: 44px;
-  font-size: 16px;
-  font-weight: 600;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #5B8FF9, #6366F1);
-  border: none;
+.floating-label {
+  position: relative;
+  margin-bottom: 20px;
 }
 
-.login-btn:hover {
-  opacity: 0.9;
+.floating-label label {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: #9ca3af;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  background: #fff;
+  padding: 0 4px;
+  z-index: 1;
 }
 
-.footer {
-  text-align: center;
-  color: #86909C;
+.floating-label.active label,
+.floating-label.focused label {
+  top: 0;
+  font-size: 12px;
+  color: #4285f4;
+}
+
+.floating-label :deep(.el-input__wrapper) {
+  border-radius: 12px;
+  padding: 4px 16px;
+  box-shadow: 0 0 0 1.5px #e5e7eb;
+  transition: box-shadow 0.2s;
+}
+
+.floating-label :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1.5px #d1d5db;
+}
+
+.floating-label :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px #4285f4;
+}
+
+.floating-label :deep(.el-input__inner) {
+  font-size: 14px;
+  height: 22px;
+}
+
+.form-links {
+  text-align: right;
+  margin-bottom: 24px;
+}
+
+.form-links a {
   font-size: 13px;
+  color: #4285f4;
+  text-decoration: none;
+  font-weight: 500;
 }
 
-.footer a {
-  color: #5B8FF9;
+.form-links a:hover {
+  text-decoration: underline;
+}
+
+.submit-btn {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4285f4, #6366f1);
+  border: none;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+
+.submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(66, 133, 244, 0.35);
+}
+
+.bottom-link {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.bottom-link a {
+  color: #4285f4;
   font-weight: 500;
+  text-decoration: none;
+}
+
+.bottom-link a:hover {
+  text-decoration: underline;
 }
 </style>

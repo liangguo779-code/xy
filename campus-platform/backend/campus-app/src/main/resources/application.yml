@@ -20,6 +20,13 @@ spring:
           max-active: 16
           max-idle: 8
           min-idle: 4
+  mail:
+    host: smtp.qq.com
+    port: 465
+    username: ${MAIL_USERNAME:3242262405@qq.com}
+    password: ${MAIL_PASSWORD:pmgbbgstydkschff}
+    properties:
+      mail.smtp.ssl.enable: true
 
 sa-token:
   token-name: Authorization
@@ -32,15 +39,7 @@ sa-token:
   is-read-header: true
   is-read-cookie: false
   is-log: false
-  public-paths: >-
-    /api/auth/login,/api/auth/register,/api/auth/send-code,
-    /api/auth/reset-password,/api/auth/bootstrap-admin,
-    /api/goods,/api/goods/recommend,/api/goods/*,/api/categories,
-    /api/forum/posts,/api/forum/posts/*,/api/forum/posts/*/comments,
-    /api/forum/posts/*/comments/tree,
-    /api/ai/**,
-    /doc.html,/webjars/**,/v3/api-docs/**,/swagger-resources/**,
-    /ws/**,/uploads/**
+  public-paths: /api/auth/login,/api/auth/register,/api/auth/send-code,/api/auth/reset-password,/api/auth/bootstrap-admin,/api/auth/send-email-code,/api/auth/verify-email-code,/api/auth/captcha,/api/goods,/api/goods/recommend,/api/goods/*,/api/categories,/api/forum/posts,/api/forum/posts/*,/api/forum/posts/*/comments,/api/forum/posts/*/comments/tree,/api/ai/**,/doc.html,/webjars/**,/v3/api-docs/**,/swagger-resources/**,/ws/**,/uploads/**
   anonymous-paths: /api/ai/**
 
 mybatis-plus:
