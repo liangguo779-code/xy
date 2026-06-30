@@ -89,11 +89,25 @@ def _fallback_query(question: str) -> dict:
     return {"answer": answer, "sources": source_list}
 
 
+# 阶段中文文案映射
+STAGE_MESSAGES = {
+    "classify": "正在分析问题意图...",
+    "rewrite": "正在优化搜索词...",
+    "retrieve": "正在检索相关信息...",
+    "rerank": "正在排序匹配结果...",
+    "retry": "正在尝试其他关键词...",
+    "generate": "正在整理回答...",
+    "chat_reply": "正在回复...",
+    "reject_reply": "正在回复...",
+    "fallback": "正在整理回答...",
+}
+
+
 def rag_query_stream(question: str, history: list = None):
-    """RAG 问答流式版本（生成器，逐 token 输出）
+    """RAG 问答流式版本（生成器，逐阶段 + 逐 token 输出）
 
     Yields:
-        dict: {"type": "stage", "stage": "..."} 或 {"type": "token", "content": "..."} 或 {"type": "sources", "sources": [...]}
+        dict: {"type": "stage", ...} | {"type": "sources", ...} | {"type": "token", ...} | {"type": "done"}
     """
     from rag.llm import get_llm, SYSTEM_PROMPT, CONTEXT_TEMPLATE
 
@@ -119,15 +133,27 @@ def rag_query_stream(question: str, history: list = None):
         "stage": "start",
     }
 
+    # 用 graph.stream() 逐步执行，每个节点完成后 yield stage 事件
+    result = {}
     try:
-        result = graph.invoke(initial_state)
+        for event in graph.stream(initial_state, stream_mode="updates"):
+            for node_name, node_output in event.items():
+                # 合并节点输出到 result
+                if isinstance(node_output, dict):
+                    result.update(node_output)
+                # yield 阶段事件
+                stage_msg = STAGE_MESSAGES.get(node_name)
+                if stage_msg:
+                    yield {"type": "stage", "stage": node_name, "message": stage_msg}
     except Exception as e:
         logger.error("LangGraph 执行失败: %s", e)
         result = _fallback_query(question)
-        yield {"type": "sources", "sources": result["sources"]}
-        yield {"type": "token", "content": result["answer"]}
+        yield {"type": "sources", "sources": result.get("sources", [])}
+        yield {"type": "token", "content": result.get("answer", "")}
         yield {"type": "done"}
         return
+
+    logger.info("RAG 完成: stage=%s, retry=%d", result.get("stage"), result.get("retry_count", 0))
 
     stage = result.get("stage", "")
     sources = result.get("sources", [])

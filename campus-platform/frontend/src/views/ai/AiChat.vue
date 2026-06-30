@@ -58,7 +58,7 @@
           <div v-if="loading" class="message assistant">
             <div class="avatar"><el-icon :size="20"><MagicStick /></el-icon></div>
             <div class="bubble">
-              <el-icon class="is-loading"><Loading /></el-icon> 思考中...
+              <el-icon class="is-loading"><Loading /></el-icon> {{ currentStage || '思考中...' }}
             </div>
           </div>
         </div>
@@ -99,6 +99,7 @@ const messages = ref([])
 const messagesRef = ref()
 const sessions = ref([])
 const currentSessionId = ref(null)
+const currentStage = ref('')
 
 const suggestedQuestions = [
   '休学怎么办理？',
@@ -178,6 +179,7 @@ async function handleSend() {
   messages.value.push({ role: 'user', content: question })
   input.value = ''
   loading.value = true
+  currentStage.value = ''
   scrollToBottom()
 
   // 先添加一个空的 assistant 消息，后续逐 token 填充
@@ -190,6 +192,7 @@ async function handleSend() {
       // onToken: 逐 token 追加内容
       (token) => {
         assistantMsg.content += token
+        currentStage.value = ''
         scrollToBottom()
       },
       // onSources: 接收来源列表
@@ -198,7 +201,11 @@ async function handleSend() {
       },
       // onDone: 流结束
       () => {
-        // 流结束
+        currentStage.value = ''
+      },
+      // onStage: 更新思考阶段
+      (event) => {
+        currentStage.value = event.message || ''
       }
     )
   } catch (e) {

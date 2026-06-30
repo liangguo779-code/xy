@@ -168,8 +168,10 @@ public class AiChatController {
                         if (line.startsWith("data: ")) {
                             String data = line.substring(6);
 
-                            // 收集回答内容用于持久化
-                            if (data.contains("\"type\":\"token\"")) {
+                            // 收集回答内容用于持久化（stage 事件直接透传，不拦截）
+                            if (data.contains("\"type\":\"stage\"")) {
+                                // stage 事件：直接透传给前端
+                            } else if (data.contains("\"type\":\"token\"")) {
                                 try {
                                     var node = objectMapper.readTree(data);
                                     if (node.has("content")) {

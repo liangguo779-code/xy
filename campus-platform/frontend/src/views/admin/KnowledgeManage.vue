@@ -12,7 +12,7 @@
             >
               <el-button type="primary" :loading="uploading">上传文档</el-button>
             </el-upload>
-            <el-button :loading="rebuilding" @click="handleRebuild">重建索引</el-button>
+            <el-button :loading="rebuilding" @click="handleRebuild">{{ rebuildProgress || '重建索引' }}</el-button>
           </div>
         </div>
       </template>
@@ -40,14 +40,22 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="250">
           <template #default="{ row }">
+            <el-button text type="success" size="small" @click="handleView(row.name)">查看</el-button>
             <el-button text type="primary" size="small" @click="handleEdit(row.name)">编辑</el-button>
             <el-button text type="danger" size="small" @click="handleDelete(row.name)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- 查看弹窗 -->
+    <el-dialog v-model="viewVisible" :title="`查看: ${viewFilename}`" width="70%" top="5vh" destroy-on-close>
+      <div class="view-container" v-loading="viewLoading">
+        <div class="markdown-preview" v-html="viewHtml"></div>
+      </div>
+    </el-dialog>
 
     <!-- 编辑弹窗 -->
     <el-dialog v-model="editVisible" :title="`编辑: ${editFilename}`" width="90%" top="3vh">
@@ -76,7 +84,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { marked } from 'marked'
 import {
   getKnowledgeList, uploadKnowledge, getKnowledgeContent,
@@ -89,11 +97,22 @@ const files = ref([])
 const loading = ref(false)
 const uploading = ref(false)
 const rebuilding = ref(false)
+const rebuildProgress = ref('')
 
 const editVisible = ref(false)
 const editFilename = ref('')
 const editContent = ref('')
 const saving = ref(false)
+
+const viewVisible = ref(false)
+const viewFilename = ref('')
+const viewContent = ref('')
+const viewLoading = ref(false)
+
+const viewHtml = computed(() => {
+  if (!viewContent.value) return ''
+  return marked.parse(viewContent.value, { breaks: true })
+})
 
 function renderPreview(text) {
   if (!text) return ''
@@ -147,6 +166,21 @@ async function handleToggle(filename) {
   }
 }
 
+async function handleView(filename) {
+  viewFilename.value = filename
+  viewContent.value = ''
+  viewLoading.value = true
+  viewVisible.value = true
+  try {
+    const res = await getKnowledgeContent(filename)
+    viewContent.value = res.data?.content || ''
+  } catch (e) {
+    viewContent.value = '加载失败'
+  } finally {
+    viewLoading.value = false
+  }
+}
+
 async function handleEdit(filename) {
   try {
     const res = await getKnowledgeContent(filename)
@@ -187,22 +221,36 @@ async function handleDelete(filename) {
 
 async function handleRebuild() {
   rebuilding.value = true
+  rebuildProgress.value = '重建中...'
   try {
     const res = await rebuildKnowledge()
     if (res.status === 'running') {
       ElMessage.warning('重建正在进行中')
       rebuilding.value = false
+      rebuildProgress.value = ''
       return
     }
     ElMessage.info(res.message || '开始重建...')
 
+    let pollCount = 0
+    const maxPolls = 150  // 2秒/次 × 150 = 5分钟超时
+
     // 轮询状态直到完成
     const poll = setInterval(async () => {
+      pollCount++
+      if (pollCount >= maxPolls) {
+        clearInterval(poll)
+        rebuilding.value = false
+        rebuildProgress.value = ''
+        ElMessage.warning('重建超时，请稍后刷新页面查看结果')
+        return
+      }
       try {
         const statusRes = await getRebuildStatus()
         if (statusRes.completed) {
           clearInterval(poll)
           rebuilding.value = false
+          rebuildProgress.value = ''
           if (statusRes.error) {
             ElMessage.error('重建失败: ' + statusRes.error)
           } else {
@@ -210,16 +258,17 @@ async function handleRebuild() {
           }
           loadList()
         } else {
-          // 可以在这里更新进度提示
-          console.log('重建进度:', statusRes.progress)
+          rebuildProgress.value = statusRes.progress || '重建中...'
         }
       } catch {
         clearInterval(poll)
         rebuilding.value = false
+        rebuildProgress.value = ''
       }
     }, 2000)
   } catch (e) {
     rebuilding.value = false
+    rebuildProgress.value = ''
   }
 }
 
@@ -233,6 +282,10 @@ onMounted(loadList)
 </script>
 
 <style scoped>
+.view-container {
+  max-height: 70vh;
+  overflow-y: auto;
+}
 .edit-container {
   display: flex;
   gap: 16px;

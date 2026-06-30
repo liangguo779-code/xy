@@ -82,10 +82,13 @@ def _rebuild_all():
 
         _rebuild_status["progress"] = "正在清空旧索引..."
         try:
-            vectorstore = get_vectorstore()
-            vectorstore._collection.delete(where={})
+            import chromadb
+            from rag.retriever import CHROMA_PATH, COLLECTION_NAME
+            client = chromadb.PersistentClient(path=CHROMA_PATH)
+            client.delete_collection(COLLECTION_NAME)
+            logger.info("已删除旧集合: %s", COLLECTION_NAME)
         except Exception as e:
-            logger.warning("清空集合失败: %s", e)
+            logger.warning("删除集合失败（可能不存在）: %s", e)
         reset_vectorstore()
 
         _rebuild_status["progress"] = f"正在切分文档 ({len(docs)} 个)..."
@@ -93,9 +96,6 @@ def _rebuild_all():
 
         _rebuild_status["progress"] = f"正在写入向量库 ({len(chunks)} 个 chunk)..."
         count = add_documents(chunks)
-
-        _rebuild_status["progress"] = "正在重建 BM25 索引..."
-        rebuild_bm25()
 
         _rebuild_status.update(running=False, completed=True, progress="重建完成", result={"docs": len(docs), "chunks": count})
         logger.info("知识库重建完成: %d 个文档, %d 个 chunk", len(docs), count)
