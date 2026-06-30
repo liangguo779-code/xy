@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ComponentScan("com.campus")
 @MapperScan({
         "com.campus.common.mapper",
+        "com.campus.app.mapper",
         "com.campus.user.mapper",
         "com.campus.trade.mapper",
         "com.campus.forum.mapper",
