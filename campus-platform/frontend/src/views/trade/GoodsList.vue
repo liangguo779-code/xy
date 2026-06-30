@@ -136,7 +136,8 @@
 
     <!-- 悬浮发布按钮 -->
     <div class="fab" @click="showPublish = true">
-      <el-icon :size="24"><Plus /></el-icon>
+      <el-icon :size="18"><Plus /></el-icon>
+      <span class="fab-text">发布闲置</span>
     </div>
 
     <!-- 发布商品弹窗 -->
@@ -455,7 +456,7 @@ onMounted(async () => {
 
 .recommend-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(91, 143, 249, 0.12);
+  box-shadow: 0 6px 16px rgba(250, 173, 20, 0.15);
 }
 
 .recommend-img {
@@ -486,7 +487,7 @@ onMounted(async () => {
   padding: 0 8px 8px;
   font-size: 14px;
   font-weight: 700;
-  color: #F56C6C;
+  color: #FAAD14;
 }
 
 .category-nav {
@@ -513,14 +514,14 @@ onMounted(async () => {
   transition: all 0.25s;
 }
 
-.cat-item:hover { color: #5B8FF9; }
-.cat-item.active { color: #5B8FF9; }
+.cat-item:hover { color: #FAAD14; }
+.cat-item.active { color: #D48806; }
 
 .cat-icon {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  background: #F2F3F5;
+  background: #FFF7E6;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -530,9 +531,9 @@ onMounted(async () => {
 }
 
 .cat-item.active .cat-icon {
-  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  background: linear-gradient(135deg, #FAAD14, #D48806);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(91, 143, 249, 0.3);
+  box-shadow: 0 4px 12px rgba(250, 173, 20, 0.3);
 }
 
 .filter-bar {
@@ -561,8 +562,8 @@ onMounted(async () => {
 }
 
 .filter-tabs span.active {
-  color: #1D2129;
-  font-weight: 500;
+  color: #D48806;
+  font-weight: 600;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
@@ -613,7 +614,7 @@ onMounted(async () => {
 
 .goods-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(91, 143, 249, 0.12);
+  box-shadow: 0 8px 24px rgba(250, 173, 20, 0.15);
 }
 
 .card-image {
@@ -677,7 +678,7 @@ onMounted(async () => {
   margin-bottom: 6px;
 }
 
-.price { font-size: 18px; font-weight: 700; color: #F56C6C; }
+.price { font-size: 18px; font-weight: 700; color: #FAAD14; }
 .original { font-size: 11px; color: #C9CDD4; text-decoration: line-through; }
 
 .card-meta {
@@ -694,22 +695,28 @@ onMounted(async () => {
   position: fixed;
   right: 24px;
   bottom: 80px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ff6b35, #ff4757);
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #FAAD14, #D48806);
   color: #fff;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   cursor: pointer;
-  box-shadow: 0 6px 20px rgba(255, 71, 87, 0.35);
+  box-shadow: 0 4px 16px rgba(250, 173, 20, 0.4);
   transition: transform 0.25s, box-shadow 0.25s;
   z-index: 100;
+  font-weight: 600;
 }
 
 .fab:hover {
-  transform: scale(1.1);
-  box-shadow: 0 8px 28px rgba(255, 71, 87, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(250, 173, 20, 0.5);
+}
+
+.fab-text {
+  font-size: 14px;
+  letter-spacing: 0.5px;
 }
 </style>

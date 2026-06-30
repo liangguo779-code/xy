@@ -184,7 +184,7 @@ async function handleLogout() {
 .logo-text {
   font-size: 18px;
   font-weight: 700;
-  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  background: linear-gradient(135deg, #FAAD14, #D48806);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -205,13 +205,13 @@ async function handleLogout() {
 }
 
 .nav-menu .el-menu-item:hover {
-  color: #5B8FF9;
+  color: #FAAD14;
   background: transparent;
 }
 
 .nav-menu .el-menu-item.is-active {
-  color: #5B8FF9;
-  border-bottom-color: #5B8FF9;
+  color: #D48806;
+  border-bottom-color: #FAAD14;
   background: transparent;
 }
 
@@ -242,8 +242,8 @@ async function handleLogout() {
 }
 
 .notif-btn:hover {
-  background: #F2F3F5;
-  color: #5B8FF9;
+  background: #FFF7E6;
+  color: #FAAD14;
 }
 
 .user-dropdown {
@@ -265,7 +265,7 @@ async function handleLogout() {
 }
 
 .user-avatar {
-  background: linear-gradient(135deg, #5B8FF9, #6366F1);
+  background: linear-gradient(135deg, #FAAD14, #D48806);
   color: #fff;
   font-weight: 600;
   font-size: 14px;
