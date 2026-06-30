@@ -1,7 +1,7 @@
-package com.campus.common.mapper;
+package com.campus.app.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.campus.common.entity.Announcement;
+import com.campus.app.entity.Announcement;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper

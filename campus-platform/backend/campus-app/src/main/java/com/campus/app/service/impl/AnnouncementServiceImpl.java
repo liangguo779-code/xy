@@ -1,11 +1,11 @@
-package com.campus.common.service.impl;
+package com.campus.app.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.campus.common.entity.Announcement;
-import com.campus.common.mapper.AnnouncementMapper;
-import com.campus.common.service.AnnouncementService;
+import com.campus.app.entity.Announcement;
+import com.campus.app.mapper.AnnouncementMapper;
+import com.campus.app.service.AnnouncementService;
 import org.springframework.stereotype.Service;
 
 @Service

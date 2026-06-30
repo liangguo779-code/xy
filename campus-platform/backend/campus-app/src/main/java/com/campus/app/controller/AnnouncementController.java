@@ -1,10 +1,10 @@
-package com.campus.common.controller;
+package com.campus.app.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.campus.common.entity.Announcement;
+import com.campus.app.entity.Announcement;
 import com.campus.common.result.R;
-import com.campus.common.service.AnnouncementService;
+import com.campus.app.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

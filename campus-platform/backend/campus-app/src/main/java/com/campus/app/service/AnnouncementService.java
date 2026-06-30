@@ -1,8 +1,8 @@
-package com.campus.common.service;
+package com.campus.app.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.campus.common.entity.Announcement;
+import com.campus.app.entity.Announcement;
 
 public interface AnnouncementService extends IService<Announcement> {
     Page<Announcement> listActive(int page, int size);

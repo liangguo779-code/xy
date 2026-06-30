@@ -1,8 +1,8 @@
-package com.campus.common.controller;
+package com.campus.app.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.campus.common.result.R;
-import com.campus.common.service.CrazyThursdayService;
+import com.campus.app.service.CrazyThursdayService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

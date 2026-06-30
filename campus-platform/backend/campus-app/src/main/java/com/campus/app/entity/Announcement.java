@@ -1,4 +1,4 @@
-package com.campus.common.entity;
+package com.campus.app.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;

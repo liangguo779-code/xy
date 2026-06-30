@@ -3,7 +3,7 @@ package com.campus.app.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.campus.common.result.R;
 import com.campus.forum.entity.Post;
-import com.campus.common.dto.PostStatsVO;
+import com.campus.app.dto.PostStatsVO;
 import com.campus.forum.mapper.PostMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

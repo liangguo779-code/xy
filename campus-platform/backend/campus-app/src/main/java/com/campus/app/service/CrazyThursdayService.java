@@ -1,4 +1,4 @@
-package com.campus.common.service;
+package com.campus.app.service;
 
 import java.util.Map;
 

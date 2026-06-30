@@ -1,4 +1,4 @@
-package com.campus.common.dto;
+package com.campus.app.dto;
 
 import lombok.Data;
 

@@ -1,12 +1,12 @@
-package com.campus.common.service.impl;
+package com.campus.app.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.campus.common.entity.CrazyThursday;
-import com.campus.common.entity.CrazyThursdayRegistration;
-import com.campus.common.mapper.CrazyThursdayMapper;
-import com.campus.common.mapper.CrazyThursdayRegistrationMapper;
-import com.campus.common.service.CrazyThursdayService;
+import com.campus.app.entity.CrazyThursday;
+import com.campus.app.entity.CrazyThursdayRegistration;
+import com.campus.app.mapper.CrazyThursdayMapper;
+import com.campus.app.mapper.CrazyThursdayRegistrationMapper;
+import com.campus.app.service.CrazyThursdayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
