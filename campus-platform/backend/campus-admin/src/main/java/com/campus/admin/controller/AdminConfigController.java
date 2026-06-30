@@ -1,9 +1,9 @@
 package com.campus.admin.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
-import com.campus.app.entity.SysConfig;
+import com.campus.common.entity.SysConfig;
 import com.campus.common.result.R;
-import com.campus.app.service.SysConfigService;
+import com.campus.common.service.SysConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

@@ -1,7 +1,7 @@
-package com.campus.app.service;
+package com.campus.common.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.campus.app.entity.SysConfig;
+import com.campus.common.entity.SysConfig;
 
 import java.util.List;
 

@@ -1,10 +1,10 @@
-package com.campus.app.service.impl;
+package com.campus.common.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.campus.app.entity.SysConfig;
-import com.campus.app.mapper.SysConfigMapper;
-import com.campus.app.service.SysConfigService;
+import com.campus.common.entity.SysConfig;
+import com.campus.common.mapper.SysConfigMapper;
+import com.campus.common.service.SysConfigService;
 import org.springframework.stereotype.Service;
 
 @Service
