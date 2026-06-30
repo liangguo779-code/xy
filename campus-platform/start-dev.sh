@@ -171,7 +171,7 @@ echo "[7/7] 等待服务就绪..."
 wait_for_service() {
     local url=$1
     local name=$2
-    local max_wait=${3:-40}
+    local max_wait=${3:-60}
     printf "  等待 %-20s" "$name..."
     for i in $(seq 1 $max_wait); do
         if curl -s "$url" > /dev/null 2>&1; then
@@ -193,12 +193,21 @@ if [ "$STARTUP_OK" = false ]; then
     exit 1
 fi
 
-# 初始化 RAG 知识库
+# 初始化 RAG 知识库（AI 中台就绪后触发）
+echo ""
+echo "  初始化 RAG 知识库..."
 MD_COUNT=$(find "$PROJECT_DIR/ai-service/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
 if [ "$MD_COUNT" -gt 0 ]; then
-    curl -s -X POST http://localhost:8000/knowledge/rebuild > /dev/null 2>&1 && \
-        echo "  ✅ RAG 知识库已触发（${MD_COUNT} 个文件）" || \
-        echo "  ⚠️  RAG 初始化失败"
+    for attempt in 1 2 3; do
+        if curl -s -X POST http://localhost:8000/knowledge/rebuild > /dev/null 2>&1; then
+            echo "  ✅ RAG 知识库已触发（${MD_COUNT} 个文件）"
+            break
+        fi
+        echo "  ⏳ 重试中... ($attempt/3)"
+        sleep 3
+    done
+else
+    echo "  ℹ️  无知识库文件，跳过"
 fi
 
 # 保存 PID
