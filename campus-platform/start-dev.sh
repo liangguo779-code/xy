@@ -89,30 +89,11 @@ fi
 echo ""
 echo "[3/7] 清理旧进程..."
 
-kill_by_pattern() {
-    local pattern=$1
-    local name=$2
-    local pids
-    pids=$(tasklist 2>/dev/null | grep -i "$pattern" | awk '{print $2}' | tr -d '\r')
-    if [ -z "$pids" ]; then
-        echo "  - ${name} 无残留进程"
-        return
-    fi
-    for pid in $pids; do
-        taskkill //F //PID "$pid" > /dev/null 2>&1 && echo "  ✅ ${name} (PID: ${pid}) 已清理"
-    done
-}
+# 先调用停止脚本，确保彻底清理所有旧进程
+echo "  调用 stop-dev.sh 彻底清理..."
+bash "$PROJECT_DIR/stop-dev.sh"
 
-# 清理所有 campus-app 相关的 Java 进程
-kill_by_pattern "campus-app-1.0.0-SNAPSHOT.jar" "campus-app"
-# 清理残留的 maven 进程
-kill_by_pattern "maven" "Maven"
-# 清理 AI 中台 Python 进程
-kill_by_pattern "main.py" "AI 中台"
-# 清理前端 Vite 进程
-kill_by_pattern "vite" "前端(Vite)"
-
-sleep 1
+sleep 2
 
 # 4. 启动 AI 中台
 echo ""
@@ -142,10 +123,43 @@ echo ""
 echo "[5/7] 构建后端单体应用..."
 
 cd "$PROJECT_DIR/backend"
+
+# 检查并等待旧的.jar文件被释放
+JAR_FILE="$PROJECT_DIR/backend/campus-app/target/campus-app-1.0.0-SNAPSHOT.jar"
+if [ -f "$JAR_FILE" ]; then
+    echo "  检查旧的.jar文件是否可删除..."
+    for i in {1..10}; do
+        if rm -f "$JAR_FILE" 2>/dev/null; then
+            echo "  ✅ 旧.jar文件已清理"
+            break
+        fi
+        if [ $i -eq 10 ]; then
+            echo "  ⚠️  旧.jar文件被锁定，尝试强制清理..."
+            # Windows: 尝试强制删除
+            cmd //c "del /f /q \"$JAR_FILE\"" 2>/dev/null || true
+            sleep 1
+        fi
+        echo "  ⏳ 等待.jar文件释放... ($i/10)"
+        sleep 1
+    done
+fi
+
 if ! mvn clean package -DskipTests -q; then
     echo "❌ 后端构建失败"
     STARTUP_OK=false
     exit 1
+fi
+
+# 检查端口是否可用
+echo ""
+echo "  检查端口 9000 是否可用..."
+if netstat -ano 2>/dev/null | grep -q ":9000.*LISTEN"; then
+    echo "  ⚠️  端口 9000 仍被占用，强制清理..."
+    local_pid=$(netstat -ano 2>/dev/null | grep ":9000 " | grep LISTEN | awk '{print $5}' | head -1)
+    if [ -n "$local_pid" ] && [ "$local_pid" != "0" ]; then
+        taskkill //F //PID "$local_pid" > /dev/null 2>&1 || true
+        sleep 2
+    fi
 fi
 
 echo ""
