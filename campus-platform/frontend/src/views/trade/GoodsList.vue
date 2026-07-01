@@ -20,18 +20,6 @@
       </div>
     </div>
 
-    <!-- 特色专区 -->
-    <div class="special-zones">
-      <div class="zone-card" v-for="zone in specialZones" :key="zone.name"
-           @click="selectSpecialZone(zone)" :style="{ background: zone.bg }">
-        <div class="zone-icon">{{ zone.icon }}</div>
-        <div class="zone-info">
-          <div class="zone-name">{{ zone.name }}</div>
-          <div class="zone-desc">{{ zone.desc }}</div>
-        </div>
-      </div>
-    </div>
-
     <!-- 为你推荐 -->
     <div v-if="recommendList.length" class="recommend-section">
       <div class="section-title">为你推荐</div>
@@ -226,12 +214,6 @@ const categories = ref([])
 const showPublish = ref(false)
 const publishing = ref(false)
 
-const specialZones = [
-  { name: '教材专区', icon: '📚', desc: '开学必备教材', bg: 'linear-gradient(135deg, #a8edea, #fed6e3)', categoryName: '教材' },
-  { name: '毕业季', icon: '🎓', desc: '毕业生好物转让', bg: 'linear-gradient(135deg, #ffecd2, #fcb69f)', categoryName: '' },
-  { name: '数码专区', icon: '📱', desc: '手机电脑配件', bg: 'linear-gradient(135deg, #a1c4fd, #c2e9fb)', categoryName: '数码' }
-]
-
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 
 const filters = reactive({
@@ -278,15 +260,6 @@ function selectCategory(id) {
   loadGoods()
 }
 
-function selectSpecialZone(zone) {
-  // 通过分类名找到对应分类ID
-  const cat = categories.value.find(c => c.name === zone.categoryName)
-  if (cat) {
-    filters.categoryId = cat.id
-  }
-  filters.keyword = zone.categoryName ? '' : zone.name
-  loadGoods()
-}
 
 function setSort(sort) {
   filters.sortBy = sort
@@ -394,35 +367,6 @@ onMounted(async () => {
   padding: 12px 0;
 }
 
-.special-zones {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-  overflow-x: auto;
-  padding: 2px;
-}
-
-.zone-card {
-  flex-shrink: 0;
-  width: 170px;
-  padding: 14px;
-  border-radius: 14px;
-  cursor: pointer;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  transition: transform 0.25s, box-shadow 0.25s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.zone-card:hover {
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-}
-
-.zone-icon { font-size: 28px; }
-.zone-name { font-size: 14px; font-weight: 600; color: #1D2129; }
-.zone-desc { font-size: 11px; color: #86909C; margin-top: 2px; }
 
 .recommend-section {
   margin-bottom: 16px;
@@ -492,48 +436,81 @@ onMounted(async () => {
 
 .category-nav {
   overflow-x: auto;
-  padding: 8px 0 12px;
+  padding: 12px 0 16px;
+  margin-bottom: 4px;
   -webkit-overflow-scrolling: touch;
+}
+
+.category-nav::-webkit-scrollbar {
+  height: 0;
 }
 
 .category-scroll {
   display: flex;
-  gap: 16px;
+  gap: 24px;
   min-width: max-content;
+  padding: 0 4px;
 }
 
 .cat-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   color: #4E5969;
   font-size: 12px;
-  min-width: 52px;
+  min-width: 56px;
   transition: all 0.25s;
+  position: relative;
 }
 
-.cat-item:hover { color: #FAAD14; }
-.cat-item.active { color: #D48806; }
+.cat-item:hover {
+  color: #FAAD14;
+  transform: translateY(-2px);
+}
+
+.cat-item.active {
+  color: #D48806;
+  font-weight: 600;
+}
+
+.cat-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #FAAD14, #D48806);
+}
 
 .cat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: #FFF7E6;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #FFF7E6, #FFF1D6);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 20px;
+  font-weight: 600;
   transition: all 0.25s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.cat-item:hover .cat-icon {
+  box-shadow: 0 4px 12px rgba(250, 173, 20, 0.15);
+  transform: scale(1.05);
 }
 
 .cat-item.active .cat-icon {
   background: linear-gradient(135deg, #FAAD14, #D48806);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(250, 173, 20, 0.3);
+  box-shadow: 0 4px 14px rgba(250, 173, 20, 0.35);
+  transform: scale(1.08);
 }
 
 .filter-bar {
