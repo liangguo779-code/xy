@@ -59,6 +59,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                         minPrice, maxPrice, condition, sortBy, page, size);
                 // ES 返回结果或无关键词过滤时直接返回
                 if (esResult.getTotal() > 0 || !StringUtils.hasText(keyword)) {
+                    log.info("ES 搜索成功: keyword={}, results={}", keyword, esResult.getTotal());
                     return esResult;
                 }
                 log.info("ES 搜索无结果，降级到 MySQL: keyword={}", keyword);
@@ -67,8 +68,10 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
             }
         }
 
-        return listGoodsFromMySQL(keyword, categoryId, userId, type,
+        Page<Goods> mysqlResult = listGoodsFromMySQL(keyword, categoryId, userId, type,
                 minPrice, maxPrice, condition, sortBy, page, size);
+        log.info("MySQL 搜索: keyword={}, results={}", keyword, mysqlResult.getTotal());
+        return mysqlResult;
     }
 
     private Page<Goods> listGoodsFromMySQL(String keyword, Long categoryId, Long userId, Integer type,

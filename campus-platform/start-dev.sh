@@ -207,6 +207,23 @@ if [ "$STARTUP_OK" = false ]; then
     exit 1
 fi
 
+# 初始化 ES 商品索引
+echo ""
+echo "  初始化 ES 商品索引..."
+# 获取 admin token
+ADMIN_TOKEN=$(curl -s -X POST http://localhost:9000/api/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"admin123"}' 2>/dev/null \
+    | python -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("token",""))' 2>/dev/null)
+if [ -n "$ADMIN_TOKEN" ]; then
+    curl -s -X PUT http://localhost:9000/api/admin/goods/reindex \
+        -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 && \
+        echo "  ✅ ES 商品索引已重建" || \
+        echo "  ⚠️  ES 索引重建失败"
+else
+    echo "  ⚠️  获取 admin token 失败，跳过 ES 重建"
+fi
+
 # 初始化 RAG 知识库（AI 中台就绪后触发）
 echo ""
 echo "  初始化 RAG 知识库..."
