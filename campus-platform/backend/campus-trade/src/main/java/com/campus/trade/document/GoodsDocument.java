@@ -5,16 +5,19 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Data
 public class GoodsDocument {
+
+    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private Long id;
     private Long userId;
     private String title;
     private String description;
-    private BigDecimal price;
-    private BigDecimal originalPrice;
+    private Double price;
+    private Double originalPrice;
     private Long categoryId;
     private String category;
     private String images;
@@ -25,8 +28,8 @@ public class GoodsDocument {
     private Integer viewCount;
     private Integer wantCount;
     private Integer likeCount;
-    private LocalDateTime refreshTime;
-    private LocalDateTime createTime;
+    private String refreshTime;
+    private String createTime;
 
     public static GoodsDocument fromGoods(Goods goods) {
         GoodsDocument doc = new GoodsDocument();
@@ -34,8 +37,8 @@ public class GoodsDocument {
         doc.setUserId(goods.getUserId());
         doc.setTitle(goods.getTitle());
         doc.setDescription(goods.getDescription());
-        doc.setPrice(goods.getPrice());
-        doc.setOriginalPrice(goods.getOriginalPrice());
+        doc.setPrice(goods.getPrice() != null ? goods.getPrice().doubleValue() : null);
+        doc.setOriginalPrice(goods.getOriginalPrice() != null ? goods.getOriginalPrice().doubleValue() : null);
         doc.setCategoryId(goods.getCategoryId());
         doc.setCategory(goods.getCategory());
         doc.setImages(goods.getImages());
@@ -46,8 +49,8 @@ public class GoodsDocument {
         doc.setViewCount(goods.getViewCount());
         doc.setWantCount(goods.getWantCount());
         doc.setLikeCount(goods.getLikeCount());
-        doc.setRefreshTime(goods.getRefreshTime());
-        doc.setCreateTime(goods.getCreateTime());
+        doc.setRefreshTime(goods.getRefreshTime() != null ? goods.getRefreshTime().format(DT_FMT) : null);
+        doc.setCreateTime(goods.getCreateTime() != null ? goods.getCreateTime().format(DT_FMT) : null);
         return doc;
     }
 }

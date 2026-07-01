@@ -55,8 +55,13 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         // 有 keyword 且不是"我的商品"场景时，走 ES 搜索
         if (StringUtils.hasText(keyword) && userId == null) {
             try {
-                return goodsSearchService.searchGoods(keyword, categoryId, type,
+                Page<Goods> esResult = goodsSearchService.searchGoods(keyword, categoryId, type,
                         minPrice, maxPrice, condition, sortBy, page, size);
+                // ES 返回结果或无关键词过滤时直接返回
+                if (esResult.getTotal() > 0 || !StringUtils.hasText(keyword)) {
+                    return esResult;
+                }
+                log.info("ES 搜索无结果，降级到 MySQL: keyword={}", keyword);
             } catch (Exception e) {
                 log.warn("ES 搜索失败，降级到 MySQL: {}", e.getMessage());
             }
