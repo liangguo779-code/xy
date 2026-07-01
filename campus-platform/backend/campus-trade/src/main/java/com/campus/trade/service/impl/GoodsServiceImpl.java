@@ -184,6 +184,14 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
 
     @Override
     public Goods createGoods(Long userId, Goods goods) {
+        // 未选分类时自动归入"其他"
+        if (goods.getCategoryId() == null) {
+            Category other = categoryMapper.selectOne(
+                    new LambdaQueryWrapper<Category>().eq(Category::getName, "其他"));
+            if (other != null) {
+                goods.setCategoryId(other.getId());
+            }
+        }
         // 校验分类是否存在且启用
         if (goods.getCategoryId() != null) {
             Category category = categoryMapper.selectById(goods.getCategoryId());
