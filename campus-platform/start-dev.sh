@@ -164,7 +164,7 @@ fi
 
 echo ""
 echo "  启动 campus-app (端口 9000)..."
-nohup java -jar campus-app/target/campus-app-1.0.0-SNAPSHOT.jar > ../logs/campus-app.log 2>&1 &
+nohup java -jar campus-app/target/campus-app-1.0.0-SNAPSHOT.jar --server.address=0.0.0.0 > ../logs/campus-app.log 2>&1 &
 APP_PID=$!
 echo "✅ campus-app 已启动 (PID: $APP_PID)"
 

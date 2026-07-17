@@ -1,5 +1,6 @@
 package com.campus.trade.service.impl;
 
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -25,6 +26,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         if (targetId == null || targetId <= 0) {
             throw new BusinessException("举报目标ID无效");
         }
+
         // 防止重复提交：检查是否已有待处理的举报
         Long existing = count(new LambdaQueryWrapper<Report>()
                 .eq(Report::getReporterId, reporterId)
@@ -34,12 +36,26 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         if (existing > 0) {
             throw new BusinessException("您已对该目标提交过举报，请等待处理结果");
         }
+
         Report report = new Report();
         report.setReporterId(reporterId);
         report.setTargetType(targetType);
         report.setTargetId(targetId);
         report.setReason(reason);
-        report.setEvidence(evidence);
+
+        // ✅ 【核心修复】根据项目实际使用的 JSON 库选择以下【其中一行】即可：
+        // [Spring Boot 默认 Jackson]
+        // report.setEvidence(StringUtils.isBlank(evidence) ? null : new ObjectMapper().writeValueAsString(evidence));
+
+        // [Hutool 工具库]
+        // report.setEvidence(StringUtils.isBlank(evidence) ? null : cn.hutool.json.JSONUtil.toJsonStr(evidence));
+
+        // [Fastjson / Fastjson2]
+        // report.setEvidence(StringUtils.isBlank(evidence) ? null : com.alibaba.fastjson2.JSON.toJSONString(evidence));
+
+        // [如果 evidence 只是纯文本且允许改表结构，最推荐的做法其实是把数据库字段改为 VARCHAR/TEXT，然后直接赋值：]
+        report.setEvidence(StringUtils.isBlank(evidence) ? null : evidence);
+
         report.setStatus(0);
         save(report);
     }
