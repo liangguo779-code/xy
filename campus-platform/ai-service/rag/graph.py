@@ -1,7 +1,6 @@
 import os
 import logging
 from typing import TypedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -153,31 +152,21 @@ def node_rewrite(state: RAGState) -> dict:
     return {"rewritten_queries": queries, "stage": "rewrite_done"}
 
 
-def _search_single(query: str) -> list[dict]:
-    """单个查询的检索（用于并发）"""
-    from rag.retriever import search
-    return search(query, top_k=5)
-
-
 def node_retrieve(state: RAGState) -> dict:
-    """节点2：多查询并发向量检索 + 合并去重"""
+    """节点2：混合检索（向量×1 + BM25×N + RRF 融合）
+
+    优化点：
+    - 向量检索只用 1 次（首查询），避免近义词 query 的向量冗余
+    - BM25 检索用所有重写查询并发，扩召回
+    """
     queries = state.get("rewritten_queries") or [state["question"]]
 
-    # 并发执行多个查询
-    all_results = []
-    with ThreadPoolExecutor(max_workers=len(queries)) as executor:
-        futures = {executor.submit(_search_single, q): q for q in queries}
-        for future in as_completed(futures):
-            try:
-                results = future.result()
-                all_results.extend(results)
-            except Exception as e:
-                logger.warning("查询检索失败: %s", e)
+    from rag.retriever import hybrid_search_multi_query
+    merged = hybrid_search_multi_query(queries, top_k=10)
 
-    merged = _merge_results([], all_results)
     best_score = min(r.get("score", 999) for r in merged) if merged else 999.0
 
-    logger.info("并发检索完成: %d 个查询, %d 个结果, 最佳分数=%.4f",
+    logger.info("混合检索完成: %d 个查询, %d 个结果, 最佳分数=%.4f",
                 len(queries), len(merged), best_score)
     return {
         "search_results": merged,

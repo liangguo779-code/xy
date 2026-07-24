@@ -138,11 +138,39 @@ async function loadSessions() {
   try {
     const res = await getSessions()
     sessions.value = res.data || []
-  } catch (e) { /* ignore */ }
+    console.log('[AiChat] 加载会话列表:', sessions.value.length, '条')
+  } catch (e) {
+    console.error('[AiChat] 加载会话列表失败:', e)
+  }
+}
+
+async function loadLastSession() {
+  // 优先恢复上次选中的会话
+  const lastId = localStorage.getItem('lastSessionId')
+  let target = null
+  if (lastId) {
+    target = sessions.value.find(s => String(s.id) === String(lastId))
+    console.log('[AiChat] 尝试恢复 lastSessionId:', lastId, target ? '命中' : '未命中')
+  }
+  // 否则取最近一个（按 updateTime 倒序的第一个）
+  if (!target && sessions.value.length > 0) {
+    target = [...sessions.value].sort((a, b) => {
+      const ta = new Date(a.updateTime || a.createTime || 0).getTime()
+      const tb = new Date(b.updateTime || b.createTime || 0).getTime()
+      return tb - ta
+    })[0]
+    console.log('[AiChat] fallback 到最近会话:', target?.id)
+  }
+  if (target) {
+    await loadSession(target.id)
+  } else {
+    console.log('[AiChat] 没有可加载的会话')
+  }
 }
 
 async function loadSession(sessionId) {
   currentSessionId.value = sessionId
+  localStorage.setItem('lastSessionId', String(sessionId))
   try {
     const res = await getSessionMessages(sessionId)
     messages.value = (res.data || []).map(m => ({
@@ -150,13 +178,17 @@ async function loadSession(sessionId) {
       content: m.content,
       sources: parseSources(m.sources).map(s => reactive({ ...s, expanded: false }))
     }))
+    console.log('[AiChat] 加载会话历史:', sessionId, '共', messages.value.length, '条')
     scrollToBottom()
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.error('[AiChat] 加载会话历史失败:', sessionId, e)
+  }
 }
 
 function handleNewSession() {
   currentSessionId.value = null
   messages.value = []
+  localStorage.removeItem('lastSessionId')
 }
 
 async function handleDeleteSession(sessionId) {
@@ -167,6 +199,7 @@ async function handleDeleteSession(sessionId) {
     if (currentSessionId.value === sessionId) {
       currentSessionId.value = null
       messages.value = []
+      localStorage.removeItem('lastSessionId')
     }
     loadSessions()
   } catch (e) { /* cancelled */ }
@@ -206,6 +239,15 @@ async function handleSend() {
       // onStage: 更新思考阶段
       (event) => {
         currentStage.value = event.message || ''
+      },
+      // onSession: 接收后端分配的 sessionId（首问时为 null，后端会创建）
+      (sessionId) => {
+        if (sessionId && currentSessionId.value !== sessionId) {
+          currentSessionId.value = sessionId
+          localStorage.setItem('lastSessionId', String(sessionId))
+          // 刷新左侧会话列表，让新会话显示出来
+          loadSessions()
+        }
       }
     )
   } catch (e) {
@@ -216,7 +258,10 @@ async function handleSend() {
   }
 }
 
-onMounted(loadSessions)
+onMounted(async () => {
+  await loadSessions()
+  await loadLastSession()
+})
 </script>
 
 <style scoped>

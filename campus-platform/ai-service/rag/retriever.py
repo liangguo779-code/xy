@@ -2,6 +2,7 @@ import os
 import json
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from langchain_chroma import Chroma
 from rag.embedder import get_embedding_model
@@ -152,6 +153,92 @@ def search(query: str, top_k: int = 5) -> list[dict]:
     # RRF 融合
     fused = _rrf_fusion(vector_results, bm25_results, k=60)
     return fused[:top_k]
+
+
+def hybrid_search_multi_query(queries: list[str], top_k: int = 5) -> list[dict]:
+    """多查询混合检索（优化版）
+
+    设计依据：
+    - 向量检索：只用 1 个查询（原始问题）。BGE 已编码语义相似度，
+      多近义词查询的向量几乎重合，重复检索是纯算力浪费。
+    - BM25 检索：所有查询并发执行。不同关键词会命中不同文档，
+      多查询能真实扩召回。
+    - RRF 融合两路结果（BM25 按各 query 内部 rank 加权，避免拼接后 rank 错位）。
+
+    Args:
+        queries: 重写后的查询列表（至少 1 个；首个为原问题或其改写）
+        top_k: 最终返回数量
+
+    Returns:
+        融合后的 Top K 检索结果
+    """
+    if not queries:
+        return []
+
+    # 1. 向量检索：仅 1 次（用原问题，避免近义词冗余）
+    vector_results = _vector_search(queries[0], top_k=top_k * 2)
+
+    # 2. BM25 检索：所有查询并发，保留每个 query 的独立结果列表
+    bm25_per_query: list[list[dict]] = []
+    with ThreadPoolExecutor(max_workers=min(len(queries), 5)) as executor:
+        futures = {executor.submit(_bm25_search, q, top_k * 2): q for q in queries}
+        for future in as_completed(futures):
+            try:
+                bm25_per_query.append(future.result())
+            except Exception as e:
+                logger.warning("BM25 检索失败: %s", e)
+
+    # 3. RRF 融合（BM25 按 query 内部 rank 加权）
+    fused = _rrf_fusion_multi_query(vector_results, bm25_per_query, k=60)
+    logger.info(
+        "混合检索: %d 个查询, 向量 %d 条, BM25 %d 路共 %d 条, 融合 %d 条",
+        len(queries), len(vector_results),
+        len(bm25_per_query), sum(len(r) for r in bm25_per_query),
+        len(fused),
+    )
+    return fused[:top_k]
+
+
+def _rrf_fusion_multi_query(
+    vector_results: list[dict],
+    bm25_per_query: list[list[dict]],
+    k: int = 60,
+) -> list[dict]:
+    """RRF 融合：BM25 多路，每路内部独立计 rank
+
+    与 _rrf_fusion 的区别：
+    - _rrf_fusion: BM25 是单个拼接列表，rank 是全局拼接位置
+    - _rrf_fusion_multi_query: BM25 是多路列表，每路内部 rank 从 0 开始
+
+    同一 chunk 在多个 query 中命中时，按各 query 内部 rank 累加 RRF 分数，
+    充分体现"多角度召回"的加权。
+    """
+    scores: dict[str, tuple[float, dict]] = {}
+
+    # 向量结果
+    for rank, r in enumerate(vector_results):
+        key = f"{r['source']}_{r.get('chunk_index', 0)}"
+        rrf = 1.0 / (k + rank + 1)
+        if key not in scores:
+            scores[key] = (0.0, r)
+        scores[key] = (scores[key][0] + rrf, scores[key][1])
+
+    # BM25 多路：每路内部重新从 0 计 rank
+    for query_results in bm25_per_query:
+        for rank, r in enumerate(query_results):
+            key = f"{r['source']}_{r.get('chunk_index', 0)}"
+            rrf = 1.0 / (k + rank + 1)
+            if key not in scores:
+                scores[key] = (0.0, r)
+            scores[key] = (scores[key][0] + rrf, scores[key][1])
+
+    sorted_items = sorted(scores.values(), key=lambda x: x[0], reverse=True)
+    result = []
+    for rrf_score, r in sorted_items:
+        item = r.copy()
+        item["score"] = r.get("score", r.get("bm25_score", 999))
+        result.append(item)
+    return result
 
 
 def _vector_search(query: str, top_k: int = 10) -> list[dict]:

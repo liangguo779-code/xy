@@ -4,7 +4,7 @@ export function chat(data) {
   return request.post('/api/ai/chat', data, { timeout: 120000 })
 }
 
-export async function chatStream(data, onToken, onSources, onDone, onStage) {
+export async function chatStream(data, onToken, onSources, onDone, onStage, onSession) {
   const token = localStorage.getItem('token')
   const res = await fetch('/api/ai/chat/stream', {
     method: 'POST',
@@ -36,7 +36,9 @@ export async function chatStream(data, onToken, onSources, onDone, onStage) {
       try {
         const jsonStr = line.startsWith('data: ') ? line.slice(6) : line.slice(5)
         const event = JSON.parse(jsonStr)
-        if (event.type === 'stage' && onStage) {
+        if (event.type === 'session' && onSession) {
+          onSession(event.sessionId)
+        } else if (event.type === 'stage' && onStage) {
           onStage(event)
         } else if (event.type === 'token' && onToken) {
           onToken(event.content)

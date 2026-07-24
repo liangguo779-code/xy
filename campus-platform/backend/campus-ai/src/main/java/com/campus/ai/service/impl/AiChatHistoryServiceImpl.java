@@ -51,11 +51,10 @@ public class AiChatHistoryServiceImpl extends ServiceImpl<AiChatSessionMapper, A
         msg.setSources(sources);
         messageMapper.insert(msg);
 
-        // 更新会话时间
-        AiChatSession session = sessionMapper.selectById(sessionId);
-        if (session != null) {
-            sessionMapper.updateById(session);
-        }
+        // 触发表 updateTime 字段更新（@TableField(fill = INSERT_UPDATE) 才会刷新）
+        AiChatSession session = new AiChatSession();
+        session.setId(sessionId);
+        sessionMapper.updateById(session);
     }
 
     @Override

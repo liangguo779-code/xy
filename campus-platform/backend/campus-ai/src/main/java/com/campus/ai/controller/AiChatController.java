@@ -145,6 +145,11 @@ public class AiChatController {
             String sourcesJson = null;
 
             try {
+                // ✨ 第一时间向前端发送 session 事件，确保前端拿到 sessionId
+                emitter.send(SseEmitter.event().data(
+                    String.format("{\"type\":\"session\",\"sessionId\":%d}", finalSessionId)
+                ));
+
                 // 构建请求体
                 String requestBody = objectMapper.writeValueAsString(request);
 
@@ -168,26 +173,21 @@ public class AiChatController {
                         if (line.startsWith("data: ")) {
                             String data = line.substring(6);
 
-                            // 收集回答内容用于持久化（stage 事件直接透传，不拦截）
-                            if (data.contains("\"type\":\"stage\"")) {
-                                // stage 事件：直接透传给前端
-                            } else if (data.contains("\"type\":\"token\"")) {
-                                try {
-                                    var node = objectMapper.readTree(data);
+                            // ✨ 用 JSON 解析判断事件类型（不能用字符串 contains，因为 json.dumps 输出 "type": "token" 带空格）
+                            try {
+                                var node = objectMapper.readTree(data);
+                                String type = node.path("type").asText("");
+                                if ("token".equals(type)) {
                                     if (node.has("content")) {
                                         answerBuilder.append(node.get("content").asText());
                                     }
-                                } catch (Exception ignored) {}
-                            } else if (data.contains("\"type\":\"sources\"")) {
-                                try {
-                                    var node = objectMapper.readTree(data);
+                                } else if ("sources".equals(type)) {
                                     if (node.has("sources")) {
                                         sourcesJson = node.get("sources").toString();
-                                        // 注入 sessionId 到 sources 事件
-                                        data = data.replace("\"sources\":", "\"sessionId\":" + finalSessionId + ",\"sources\":");
                                     }
-                                } catch (Exception ignored) {}
-                            }
+                                }
+                                // stage / done / session 事件：直接透传
+                            } catch (Exception ignored) {}
 
                             // 转发给前端
                             emitter.send(SseEmitter.event().data(data));

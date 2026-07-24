@@ -34,3 +34,6 @@ campus-platform/es_data/
 
 # Uploads
 campus-platform/backend/uploads/
+
+# Docs (local notes, not tracked)
+campus-platform/doc/
