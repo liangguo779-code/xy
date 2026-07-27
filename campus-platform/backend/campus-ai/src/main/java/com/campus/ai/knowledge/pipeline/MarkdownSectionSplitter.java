@@ -45,32 +45,48 @@ public class MarkdownSectionSplitter {
 
     /**
      * Strip table-of-contents sections from the markdown before chunking.
-     * Detects a heading followed by a bullet-list block (lines starting with "- "),
-     * then strips from that heading to the next same-level heading.
-     * This approach avoids CJK encoding issues with string literals.
+     * A TOC section contains sub-headings followed by bullet lists with NO paragraph
+     * text between bullets and the next heading. Detects this pattern by checking
+     * that the section body has 3+ bullet lines and no non-bullet non-heading text.
+     * Avoids CJK string literals to prevent Write-tool encoding corruption.
      */
     private static String stripToc(String markdown) {
         String[] lines = markdown.split("\\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             if (!line.startsWith("#")) continue;
-            // Heuristic: if the next non-blank line is a bullet list, this is a TOC section.
-            int j = i + 1;
-            while (j < lines.length && lines[j].trim().isEmpty()) j++;
-            if (j >= lines.length) break;
-            if (!lines[j].trim().startsWith("- ")) continue;
-            // Found a TOC section. Find its end (next heading at same or higher level).
             int level = countHashes(line);
-            int end = lines.length;
+            // Find end of this section
+            int sectionEnd = lines.length;
             for (int k = i + 1; k < lines.length; k++) {
                 if (lines[k].startsWith("#") && countHashes(lines[k]) <= level) {
-                    end = k;
+                    sectionEnd = k;
                     break;
                 }
             }
-            return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i))
-                    + "\n"
-                    + String.join("\n", java.util.Arrays.copyOfRange(lines, end, lines.length));
+            if (sectionEnd <= i + 1) continue; // empty section
+            // Heuristic: a TOC section has bullet lines ("- ...") but NO paragraph text
+            // (non-empty lines that aren't headings or bullets).
+            boolean hasBullet = false;
+            boolean hasNonBulletContent = false;
+            int bulletCount = 0;
+            for (int k = i + 1; k < sectionEnd; k++) {
+                String l = lines[k].trim();
+                if (l.isEmpty()) continue;
+                if (l.startsWith("#")) continue;
+                if (l.startsWith("- ")) {
+                    hasBullet = true;
+                    bulletCount++;
+                } else {
+                    hasNonBulletContent = true;
+                }
+            }
+            // A TOC has bullets and NO regular paragraph text
+            if (hasBullet && !hasNonBulletContent && bulletCount >= 3) {
+                return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i))
+                        + "\n"
+                        + String.join("\n", java.util.Arrays.copyOfRange(lines, sectionEnd, lines.length));
+            }
         }
         return markdown;
     }
