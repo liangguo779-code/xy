@@ -93,6 +93,12 @@ public class AiChatController {
                                 emitter.send(SseEmitter.event().data(
                                         String.format("{\"type\":\"sources\",\"sources\":%s}", s)));
                             }
+                            case "token" -> {
+                                String content = (String) event.payload();
+                                emitter.send(SseEmitter.event().data(
+                                        String.format("{\"type\":\"token\",\"content\":%s}",
+                                                objectMapper.writeValueAsString(content))));
+                            }
                             case "done" -> emitter.send(SseEmitter.event().data("{\"type\":\"done\"}"));
                         }
                     } catch (Exception e) {

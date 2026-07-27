@@ -85,6 +85,7 @@ public class RagOrchestrator {
                 ChatResponse r = new ChatResponse();
                 r.setAnswer(reply);
                 r.setSources(List.of());
+                sink.accept(new StreamEvent("token", null, reply));
                 sink.accept(new StreamEvent("done", null, null));
                 return r;
             }
@@ -92,6 +93,7 @@ public class RagOrchestrator {
                 ChatResponse r = new ChatResponse();
                 r.setAnswer(REJECT_ANSWER);
                 r.setSources(List.of());
+                sink.accept(new StreamEvent("token", null, REJECT_ANSWER));
                 sink.accept(new StreamEvent("done", null, null));
                 return r;
             }
@@ -136,6 +138,7 @@ public class RagOrchestrator {
             ChatResponse r = new ChatResponse();
             r.setAnswer(FALLBACK_ANSWER);
             r.setSources(List.of());
+            sink.accept(new StreamEvent("token", null, FALLBACK_ANSWER));
             sink.accept(new StreamEvent("done", null, null));
             return r;
         }
@@ -156,6 +159,12 @@ public class RagOrchestrator {
 
         String answer = generate(s, sources);
         sink.accept(new StreamEvent("stage", "generate_done", STAGE_MESSAGES.get("generate_done")));
+
+        // Push the generated answer as a token event so the SSE stream delivers it to
+        // the client. The orchestrator's generate() is synchronous, so this is one chunk
+        // (not a per-token stream); future migration to StreamingChatModel can switch this
+        // to per-token emission.
+        sink.accept(new StreamEvent("token", null, answer));
 
         ChatResponse r = new ChatResponse();
         r.setAnswer(answer);
