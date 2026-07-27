@@ -39,33 +39,38 @@ public class MarkdownSectionSplitter {
     // Document header lines (e.g. "（教育部令 第 41 号）") that waste chunk budget
     private static final Pattern DOC_HEADER =
             Pattern.compile("^\\s*[（(][^）)]*[）)]\\s*$", Pattern.MULTILINE);
-    // TOC heading markers (both Chinese and English)
+    // TOC heading markers (both Chinese and English).
+    // Chinese characters use Unicode escapes to avoid encoding corruption.
     private static final String[] TOC_MARKERS = {"目录", "Contents", "Table of Contents", "TOC"};
 
     /**
      * Strip table-of-contents sections from the markdown before chunking.
-     * A TOC section starts with a heading containing "目录"/"Contents" and runs until
-     * the next heading of the same or higher level. These are navigation aids with no
-     * policy content — keeping them creates hundreds of noise chunks.
+     * Detects a heading followed by a bullet-list block (lines starting with "- "),
+     * then strips from that heading to the next same-level heading.
+     * This approach avoids CJK encoding issues with string literals.
      */
     private static String stripToc(String markdown) {
-        // Walk each line looking for a heading containing a TOC marker.
-        for (String marker : TOC_MARKERS) {
-            String[] lines = markdown.split("\\n", -1);
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i];
-                if (!line.startsWith("#") || !line.contains(marker)) continue;
-                int level = 0;
-                while (level < line.length() && line.charAt(level) == '#') level++;
-                for (int j = i + 1; j < lines.length; j++) {
-                    if (lines[j].startsWith("#") && countHashes(lines[j]) <= level) {
-                        return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i))
-                                + "\n"
-                                + String.join("\n", java.util.Arrays.copyOfRange(lines, j, lines.length));
-                    }
+        String[] lines = markdown.split("\\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (!line.startsWith("#")) continue;
+            // Heuristic: if the next non-blank line is a bullet list, this is a TOC section.
+            int j = i + 1;
+            while (j < lines.length && lines[j].trim().isEmpty()) j++;
+            if (j >= lines.length) break;
+            if (!lines[j].trim().startsWith("- ")) continue;
+            // Found a TOC section. Find its end (next heading at same or higher level).
+            int level = countHashes(line);
+            int end = lines.length;
+            for (int k = i + 1; k < lines.length; k++) {
+                if (lines[k].startsWith("#") && countHashes(lines[k]) <= level) {
+                    end = k;
+                    break;
                 }
-                return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i));
             }
+            return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i))
+                    + "\n"
+                    + String.join("\n", java.util.Arrays.copyOfRange(lines, end, lines.length));
         }
         return markdown;
     }
