@@ -10,7 +10,7 @@ echo ""
 
 # 从 .pids 文件读取 PID
 if [ -f "$PROJECT_DIR/.pids" ]; then
-    read -r AI_PID APP_PID FRONTEND_PID < "$PROJECT_DIR/.pids"
+    read -r APP_PID FRONTEND_PID < "$PROJECT_DIR/.pids"
 
     kill_pid() {
         local pid=$1
@@ -31,7 +31,6 @@ if [ -f "$PROJECT_DIR/.pids" ]; then
     }
 
     echo "通过 PID 停止服务:"
-    kill_pid "$AI_PID" "AI 中台"
     kill_pid "$APP_PID" "campus-app"
     kill_pid "$FRONTEND_PID" "前端"
     rm -f "$PROJECT_DIR/.pids"
@@ -61,7 +60,6 @@ kill_by_pattern() {
 # 清理所有相关进程
 kill_by_pattern "campus-app-1.0.0-SNAPSHOT.jar" "campus-app"
 kill_by_pattern "maven" "Maven"
-kill_by_pattern "main.py" "AI 中台"
 kill_by_pattern "vite" "前端(Vite)"
 kill_by_pattern "node" "Node.js"
 
@@ -85,7 +83,7 @@ kill_by_port() {
         return 0
     fi
     # macOS/Linux
-    pid=$(lsof -ti :${port} 2>/dev/null | head -1)
+    pid=$(lsof -ti :${port}" 2>/dev/null | head -1)
     if [ -n "$pid" ]; then
         if kill -9 "$pid" 2>/dev/null; then
             echo "  ✅ ${name} (PID: ${pid}) 已停止"
@@ -98,7 +96,6 @@ kill_by_port() {
 }
 
 kill_by_port 9000 "campus-app"
-kill_by_port 8000 "AI 中台"
 kill_by_port 5173 "前端(Vite)"
 
 # 等待进程完全停止
@@ -118,7 +115,6 @@ verify_port_free() {
 }
 
 verify_port_free 9000 "campus-app"
-verify_port_free 8000 "AI 中台"
 verify_port_free 5173 "前端(Vite)"
 
 rm -f "$PROJECT_DIR/.pids"

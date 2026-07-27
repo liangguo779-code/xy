@@ -52,10 +52,54 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# AI service (external Python)
+# AI service
+# `ai.service.url` is the legacy property consumed by the old Python proxy in
+# AiServiceImpl; it is no longer required by the in-process LangChain4j
+# implementation but is kept so existing operator shell history and docker
+# compose files (which still set AI_SERVICE_URL) do not break silently. It can
+# be removed once the compose file no longer references it.
 ai:
   service:
-    url: ${AI_SERVICE_URL:http://localhost:8000}
+    url: ${AI_SERVICE_URL:}
+
+# Campus AI — in-process LangChain4j configuration. Values flow in from
+# campus-platform/.env via the dotenv-maven-plugin (see backend/campus-app/pom.xml).
+campus:
+  ai:
+    home: ${AI_HOME:./runtime}
+    knowledge:
+      dir: ${AI_KNOWLEDGE_DIR:${campus.ai.home}/knowledge}
+      max-file-size: 20MB
+      allowed-suffixes: .md,.txt,.pdf,.docx,.doc
+      chunk-size: 500
+      chunk-overlap: 50
+      score-threshold: 0.8
+      bm25-k: 60
+    vector:
+      index-name: campus_knowledge
+      embedding-model: ${AI_EMBEDDING_MODEL:BAAI/bge-base-zh-v1.5}
+      embedding-dim: 768
+      rerank-topk: 5
+      retrieve-topk: 10
+    llm:
+      provider: openai-compatible
+      base-url: ${OPENAI_BASE_URL:https://api.deepseek.com}
+      api-key: ${OPENAI_API_KEY:}
+      model: ${LLM_MODEL:deepseek-chat}
+      temperature: 0.3
+      timeout: 60s
+    rebuild:
+      max-concurrent: 1
+
+# LangChain4j Spring Boot starter reads these to wire OpenAiChatModel.
+langchain4j:
+  chat-model:
+    open-ai:
+      api-key: ${campus.ai.llm.api-key:dummy}
+      base-url: ${campus.ai.llm.base-url}
+      model-name: ${campus.ai.llm.model}
+      temperature: ${campus.ai.llm.temperature}
+      timeout: ${campus.ai.llm.timeout}
 
 # Delivery
 delivery:

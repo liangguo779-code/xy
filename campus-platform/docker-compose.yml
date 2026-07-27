@@ -63,6 +63,8 @@ services:
       retries: 5
 
   # ==================== 后端单体应用 ====================
+  # The in-process LangChain4j AI implementation lives inside campus-app
+  # (campus-ai module). No separate ai-service container is needed.
   campus-app:
     build:
       context: ./backend
@@ -76,7 +78,16 @@ services:
       REDIS_HOST: redis
       REDIS_PASSWORD: 123456
       ELASTICSEARCH_HOST: elasticsearch
-      AI_SERVICE_URL: http://ai-service:8000
+      # The AI service URL is now unused; the value is kept only for backward
+      # compatibility with operators' shell history.
+      AI_SERVICE_URL: ""
+      # DeepSeek credentials consumed by spring-dotenv via campus-platform/.env.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      AI_HOME: /app/runtime
+    volumes:
+      - campus_ai_runtime:/app/runtime
     depends_on:
       mysql:
         condition: service_healthy
@@ -84,8 +95,6 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
-      ai-service:
-        condition: service_started
 
   # ==================== Nginx ====================
   nginx:
@@ -99,23 +108,8 @@ services:
     depends_on:
       - campus-app
 
-  ai-service:
-    build:
-      context: ./ai-service
-      dockerfile: Dockerfile
-    container_name: campus-ai
-    ports:
-      - "8000:8000"
-    environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-f168b9cb60b44733962a64ef3570860c}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
-    volumes:
-      - ./ai-service/knowledge:/app/knowledge
-      - ai_chroma_data:/app/chroma_data
-
 volumes:
   mysql_data:
   redis_data:
   es_data:
-  ai_chroma_data:
+  campus_ai_runtime:

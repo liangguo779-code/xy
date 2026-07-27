@@ -2,6 +2,9 @@
 # 校园生态平台 - 单体应用开发模式启动脚本
 # 前置条件: Docker 容器 (mysql, redis, elasticsearch) 已启动
 # 如需一键启动 Docker + 本服务，请使用 start-all.sh
+#
+# 注意: AI 服务已迁移到 backend/campus-ai (LangChain4j in-process),
+#      不再需要单独的 Python AI 中台。
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$PROJECT_DIR/logs"
@@ -26,7 +29,7 @@ echo "=========================================="
 
 # 1. 检查前置条件
 echo ""
-echo "[1/7] 检查环境..."
+echo "[1/6] 检查环境..."
 
 if ! command -v java &> /dev/null; then
     echo "❌ 未找到 Java，请安装 JDK 17+"
@@ -38,11 +41,6 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-if ! command -v python &> /dev/null && ! command -v python3 &> /dev/null; then
-    echo "❌ 未找到 Python，请安装 Python 3.10+"
-    exit 1
-fi
-
 if ! command -v mvn &> /dev/null; then
     echo "❌ 未找到 Maven，请安装 Maven 3.8+"
     exit 1
@@ -50,12 +48,11 @@ fi
 
 echo "✅ Java: $(java -version 2>&1 | head -1)"
 echo "✅ Node: $(node -v)"
-echo "✅ Python: $(python --version 2>&1 || python3 --version 2>&1)"
 echo "✅ Maven: $(mvn -v 2>&1 | head -1)"
 
 # 2. 检查 Docker 基础设施（仅检查，不启动）
 echo ""
-echo "[2/7] 检查 Docker 基础设施..."
+echo "[2/6] 检查 Docker 基础设施..."
 
 check_port() {
     local port=$1
@@ -87,40 +84,16 @@ fi
 
 # 3. 清理旧进程
 echo ""
-echo "[3/7] 清理旧进程..."
+echo "[3/6] 清理旧进程..."
 
-# 先调用停止脚本，确保彻底清理所有旧进程
 echo "  调用 stop-dev.sh 彻底清理..."
 bash "$PROJECT_DIR/stop-dev.sh"
 
 sleep 2
 
-# 4. 启动 AI 中台
+# 4. 构建后端单体应用
 echo ""
-echo "[4/7] 启动 AI 中台 (端口 8000)..."
-cd "$PROJECT_DIR/ai-service"
-
-if [ ! -d "venv" ]; then
-    echo "  创建 Python 虚拟环境..."
-    python -m venv venv 2>/dev/null || python3 -m venv venv
-fi
-
-source venv/bin/activate 2>/dev/null || source venv/Scripts/activate 2>/dev/null
-pip install -r requirements.txt -q -i https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null
-
-export HF_HUB_OFFLINE=1
-nohup python main.py > ../logs/ai-service.log 2>&1 &
-AI_PID=$!
-if ! kill -0 "$AI_PID" 2>/dev/null; then
-    echo "❌ AI 中台启动失败"
-    STARTUP_OK=false
-    exit 1
-fi
-echo "✅ AI 中台已启动 (PID: $AI_PID)"
-
-# 5. 构建并启动后端单体应用
-echo ""
-echo "[5/7] 构建后端单体应用..."
+echo "[4/6] 构建后端单体应用..."
 
 cd "$PROJECT_DIR/backend"
 
@@ -135,7 +108,6 @@ if [ -f "$JAR_FILE" ]; then
         fi
         if [ $i -eq 10 ]; then
             echo "  ⚠️  旧.jar文件被锁定，尝试强制清理..."
-            # Windows: 尝试强制删除
             cmd //c "del /f /q \"$JAR_FILE\"" 2>/dev/null || true
             sleep 1
         fi
@@ -168,9 +140,9 @@ nohup java -jar campus-app/target/campus-app-1.0.0-SNAPSHOT.jar --server.address
 APP_PID=$!
 echo "✅ campus-app 已启动 (PID: $APP_PID)"
 
-# 6. 启动前端
+# 5. 启动前端
 echo ""
-echo "[6/7] 启动前端 (端口 5173)..."
+echo "[5/6] 启动前端 (端口 5173)..."
 cd "$PROJECT_DIR/frontend"
 npm install -q 2>/dev/null
 
@@ -178,9 +150,9 @@ nohup npm run dev > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "✅ 前端已启动 (PID: $FRONTEND_PID)"
 
-# 7. 等待服务就绪
+# 6. 等待服务就绪
 echo ""
-echo "[7/7] 等待服务就绪..."
+echo "[6/6] 等待服务就绪..."
 
 wait_for_service() {
     local url=$1
@@ -198,8 +170,7 @@ wait_for_service() {
     return 1
 }
 
-wait_for_service "http://localhost:8000/health" "AI 中台" || STARTUP_OK=false
-wait_for_service "http://localhost:9000/actuator/health" "campus-app" || STARTUP_OK=false
+wait_for_service "http://localhost:9000/api/ai/health" "campus-app AI" || STARTUP_OK=false
 
 if [ "$STARTUP_OK" = false ]; then
     echo ""
@@ -210,7 +181,6 @@ fi
 # 初始化 ES 商品索引
 echo ""
 echo "  初始化 ES 商品索引..."
-# 获取 admin token
 ADMIN_TOKEN=$(curl -s -X POST http://localhost:9000/api/auth/login \
     -H 'Content-Type: application/json' \
     -d '{"username":"admin","password":"admin123"}' 2>/dev/null \
@@ -224,13 +194,13 @@ else
     echo "  ⚠️  获取 admin token 失败，跳过 ES 重建"
 fi
 
-# 初始化 RAG 知识库（AI 中台就绪后触发）
+# 初始化 RAG 知识库 (LangChain4j in-process,触发后台索引任务)
 echo ""
 echo "  初始化 RAG 知识库..."
-MD_COUNT=$(find "$PROJECT_DIR/ai-service/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
+MD_COUNT=$(find "$PROJECT_DIR/backend/campus-ai/src/main/resources/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
 if [ "$MD_COUNT" -gt 0 ]; then
     for attempt in 1 2 3; do
-        if curl -s -X POST http://localhost:8000/knowledge/rebuild > /dev/null 2>&1; then
+        if curl -s -X POST http://localhost:9000/api/admin/knowledge/rebuild > /dev/null 2>&1; then
             echo "  ✅ RAG 知识库已触发（${MD_COUNT} 个文件）"
             break
         fi
@@ -242,7 +212,7 @@ else
 fi
 
 # 保存 PID
-echo "$AI_PID $APP_PID $FRONTEND_PID" > "$PROJECT_DIR/.pids"
+echo "$APP_PID $FRONTEND_PID" > "$PROJECT_DIR/.pids"
 
 echo ""
 echo "=========================================="
@@ -252,7 +222,7 @@ echo ""
 echo "  访问地址:"
 echo "    前端:      http://localhost:5173"
 echo "    后端:      http://localhost:9000"
-echo "    AI 中台:   http://localhost:8000"
+echo "    AI (内嵌): http://localhost:9000/api/ai/health"
 echo ""
 echo "  测试账号: testuser / test123"
 echo "  管理后台: admin / admin123"
