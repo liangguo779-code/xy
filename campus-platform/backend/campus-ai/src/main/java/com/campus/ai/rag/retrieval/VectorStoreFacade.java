@@ -1,98 +1,163 @@
 package com.campus.ai.rag.retrieval;
 
+import com.campus.ai.config.AiProperties;
 import com.campus.ai.knowledge.model.ChunkDto;
-import dev.langchain4j.data.document.Metadata;
-import dev.langchain4j.data.embedding.Embedding;
-import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.store.embedding.EmbeddingStore;
-import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
-import dev.langchain4j.store.embedding.EmbeddingSearchResult;
-import dev.langchain4j.store.embedding.filter.Filter;
-import dev.langchain4j.store.embedding.filter.comparison.IsNotIn;
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.KnnQuery;
+import co.elastic.clients.elasticsearch.core.*;
+import co.elastic.clients.elasticsearch.core.search.Hit;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 /**
- * Thin wrapper over LangChain4j's {@link EmbeddingStore} for the campus knowledge index.
- * Stores one document per chunk; metadata carries {@code source}, {@code chunk_index},
- * {@code section_title}, {@code section_path}. Disabled files are filtered out at query
- * time by passing a {@code source NOT IN} filter.
+ * Vector store facade using the Elasticsearch Java Client directly.
+ * Creates a dense_vector index, stores chunks with embeddings, and
+ * searches using cosine similarity.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class VectorStoreFacade {
 
-    private final EmbeddingStore<TextSegment> store;
-    private final EmbeddingModel embeddingModel;
+    private final ElasticsearchClient esClient;
+    private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
+    private final AiProperties props;
+
+    @PostConstruct
+    void ensureIndex() {
+        try {
+            boolean exists = esClient.indices().exists(e -> e.index(indexName())).value();
+            if (exists) {
+                log.info("ES index '{}' already exists", indexName());
+                return;
+            }
+            int dim = props.getVector().getEmbeddingDim();
+            log.info("Creating ES index '{}' with dim={}...", indexName(), dim);
+            esClient.indices().create(c -> c
+                    .index(indexName())
+                    .mappings(m -> m
+                            .properties("text", p -> p.text(t -> t))
+                            .properties("source", p -> p.keyword(k -> k))
+                            .properties("chunk_index", p -> p.integer(i -> i))
+                            .properties("section_title", p -> p.text(t -> t))
+                            .properties("section_path", p -> p.text(t -> t))
+                            .properties("embedding", p -> p.denseVector(d -> d
+                                    .dims(dim)
+                                    .index(true)
+                                    .similarity("cosine")))
+                    ));
+            log.info("ES index '{}' created", indexName());
+        } catch (Exception e) {
+            log.error("Failed to ensure ES index '{}': {}", indexName(), e.getMessage(), e);
+        }
+    }
+
+    private String indexName() {
+        return props.getVector().getIndexName();
+    }
+
+    private float[] embed(String text) {
+        return embeddingModel.embed(text).content().vector();
+    }
 
     public void addAll(List<ChunkDto> chunks) {
         if (chunks == null || chunks.isEmpty()) return;
-        List<TextSegment> segments = new ArrayList<>(chunks.size());
-        List<Embedding> embeddings = new ArrayList<>(chunks.size());
-        for (ChunkDto c : chunks) {
-            Metadata meta = new Metadata()
-                    .put("source", c.getSource())
-                    .put("chunk_index", c.getChunkIndex())
-                    .put("section_title", c.getSectionTitle() == null ? "" : c.getSectionTitle())
-                    .put("section_path", c.getSectionPath() == null ? "" : c.getSectionPath());
-            TextSegment seg = TextSegment.from(c.getContent(), meta);
-            segments.add(seg);
-            embeddings.add(embeddingModel.embed(seg).content());
+        try {
+            BulkRequest.Builder br = new BulkRequest.Builder();
+            for (ChunkDto c : chunks) {
+                float[] vec = embed(c.getContent());
+                Map<String, Object> doc = new LinkedHashMap<>();
+                doc.put("text", c.getContent());
+                doc.put("source", c.getSource());
+                doc.put("chunk_index", c.getChunkIndex());
+                doc.put("section_title", c.getSectionTitle() == null ? "" : c.getSectionTitle());
+                doc.put("section_path", c.getSectionPath() == null ? "" : c.getSectionPath());
+                doc.put("embedding", vec);
+                br.operations(op -> op
+                        .index(idx -> idx
+                                .index(indexName())
+                                .id(c.getSource() + "_" + c.getChunkIndex())
+                                .document(doc)));
+            }
+            BulkResponse resp = esClient.bulk(br.build());
+            if (resp.errors()) {
+                resp.items().stream().filter(i -> i.error() != null).findFirst()
+                        .ifPresent(i -> log.warn("First bulk error: {}: {}", i.id(), i.error().reason()));
+            }
+            log.info("Vector store ingested {} chunks", chunks.size());
+        } catch (Exception e) {
+            log.error("Vector store addAll failed: {}", e.getMessage(), e);
+            throw new RuntimeException(e);
         }
-        store.addAll(embeddings, segments);
-        log.info("Vector store ingested {} chunks", chunks.size());
     }
 
     public void removeBySource(String source) {
         try {
-            store.removeAll(new dev.langchain4j.store.embedding.filter.comparison.IsEqualTo("source", source));
+            esClient.deleteByQuery(d -> d
+                    .index(indexName())
+                    .query(q -> q.term(t -> t.field("source").value(source)))
+            );
             log.info("Vector store removed all chunks for source={}", source);
         } catch (Exception e) {
             log.warn("Vector store removeBySource failed for {}: {}", source, e.getMessage());
         }
     }
 
+    /**
+     * KNN search using ES cosine similarity. Filters out disabled sources.
+     */
     public List<Hit> search(String query, int topK, Set<String> disabledSources) {
-        Embedding queryEmb = embeddingModel.embed(query).content();
-        Filter filter = null;
-        if (disabledSources != null && !disabledSources.isEmpty()) {
-            filter = new IsNotIn("source", disabledSources);
+        try {
+            float[] qVec = embed(query);
+            List<Float> qVecList = new ArrayList<>(qVec.length);
+            for (float f : qVec) qVecList.add(f);
+
+            // Build KnnQuery with k = topK
+            KnnQuery knn = new KnnQuery.Builder()
+                    .field("embedding")
+                    .k(topK)
+                    .numCandidates(topK * 2)
+                    .queryVector(qVecList)
+                    .build();
+
+            SearchRequest.Builder sb = new SearchRequest.Builder()
+                    .index(indexName())
+                    .size(topK)
+                    .knn(knn);
+            sb.source(s -> s.filter(f -> f.includes(
+                    "text", "source", "chunk_index", "section_title", "section_path")));
+
+            SearchResponse<Map> resp = esClient.search(sb.build(), Map.class);
+            List<Hit> out = new ArrayList<>();
+            for (co.elastic.clients.elasticsearch.core.search.Hit<Map> h : resp.hits().hits()) {
+                Map src = h.source();
+                if (src == null) continue;
+                out.add(new Hit(
+                        (String) src.get("source"),
+                        src.containsKey("chunk_index") ? ((Number) src.get("chunk_index")).intValue() : 0,
+                        (String) src.get("text"),
+                        h.score()
+                ));
+            }
+
+            // Post-filter disabled sources (knn doesn't support must-not easily)
+            if (disabledSources != null && !disabledSources.isEmpty()) {
+                out.removeIf(hit -> disabledSources.contains(hit.source()));
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("Vector search failed: {}", e.getMessage());
+            return List.of();
         }
-        EmbeddingSearchRequest req = EmbeddingSearchRequest.builder()
-                .queryEmbedding(queryEmb)
-                .maxResults(topK)
-                .filter(filter)
-                .build();
-        EmbeddingSearchResult<TextSegment> result = store.search(req);
-        List<Hit> out = new ArrayList<>();
-        for (var match : result.matches()) {
-            TextSegment seg = match.embedded();
-            Metadata m = seg.metadata();
-            Integer chunkIndex = m.getInteger("chunk_index");
-            out.add(new Hit(
-                    m.getString("source"),
-                    chunkIndex == null ? 0 : chunkIndex,
-                    seg.text(),
-                    match.score()
-            ));
-        }
-        return out;
     }
 
     public int count() {
         try {
-            // langchain4j-elasticsearch doesn't expose a count helper through the SPI; callers
-            // generally want this for health checks, where 0/-1 is acceptable.
-            return -1;
+            return (int) esClient.count(c -> c.index(indexName())).count();
         } catch (Exception e) {
             return -1;
         }

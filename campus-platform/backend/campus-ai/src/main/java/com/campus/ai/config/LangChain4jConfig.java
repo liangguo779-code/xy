@@ -1,37 +1,31 @@
 package com.campus.ai.config;
 
-import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzh.BgeSmallZhEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.scoring.ScoringModel;
 import dev.langchain4j.model.scoring.onnx.OnnxScoringModel;
-import dev.langchain4j.store.embedding.EmbeddingStore;
-import dev.langchain4j.store.embedding.elasticsearch.ElasticsearchEmbeddingStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
 /**
- * Wires the LangChain4j beans (chat model, embedding model, embedding store, scoring model).
+ * Wires the LangChain4j beans (chat model, embedding model, scoring model).
  *
  * <ul>
  *   <li>Chat: OpenAI-compatible (DeepSeek) via {@link OpenAiChatModel}.</li>
  *   <li>Embedding: BGE small-zh (512-dim Chinese). The model is downloaded by langchain4j from
- *       Hugging Face Hub on first construction. The cache location is controlled by the
- *       {@code HF_HOME} environment variable (defaults to {@code ~/.cache/huggingface}).</li>
- *   <li>Vector store: Elasticsearch dense-vector index {@code campus_knowledge}.</li>
- *   <li>Scoring: BGE reranker (cross-encoder), loaded as a local ONNX model + tokenizer. The
- *       model and tokenizer are downloaded on first start from
- *       {@code https://huggingface.co/Xenova/bge-reranker-base} into
- *       {@code ${campus.ai.home}/models/bge-reranker-base}.</li>
+ *       Hugging Face Hub on first construction.</li>
+ *   <li>Scoring: BGE reranker (cross-encoder), loaded as a local ONNX model + tokenizer.</li>
  * </ul>
+ *
+ * <p>Vector store is handled by {@code VectorStoreFacade} using the raw Elasticsearch
+ * Java Client directly (see the Javadoc there for why).
  */
 @Slf4j
 @Configuration
@@ -52,19 +46,6 @@ public class LangChain4jConfig {
         // BgeSmallZhEmbeddingModel has no Path-based constructor; the model is downloaded
         // and cached by the langchain4j embeddings-bge-small-zh module on first use.
         return new BgeSmallZhEmbeddingModel();
-    }
-
-    @Bean
-    public EmbeddingStore<TextSegment> embeddingStore() {
-        AiProperties.Vector v = props.getVector();
-        log.info("Configuring ElasticsearchEmbeddingStore index='{}' dim={}",
-                v.getIndexName(), v.getEmbeddingDim());
-        return ElasticsearchEmbeddingStore.builder()
-                .serverUrl("http://" + System.getenv().getOrDefault("ELASTICSEARCH_HOST", "localhost")
-                        + ":" + System.getenv().getOrDefault("ELASTICSEARCH_PORT", "9200"))
-                .indexName(v.getIndexName())
-                .dimension(v.getEmbeddingDim())
-                .build();
     }
 
     @Bean

@@ -33,11 +33,6 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
         </dependency>
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-elasticsearch</artifactId>
-        </dependency>
-
         <!-- Chinese embedding (BAAI/bge-small-zh, 512-dim). The langchain4j 1.0.0-beta5 BOM
              ships bge-small-zh but not bge-base-zh — the model is on disk in
              ${campus.ai.home}/models/bge-small-zh after first start. -->
@@ -66,6 +61,18 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.5</version>
+        </dependency>
+
+        <!-- Elasticsearch Java Client for vector search (KNN over dense_vector) -->
+        <dependency>
+            <groupId>co.elastic.clients</groupId>
+            <artifactId>elasticsearch-java</artifactId>
+            <version>${elasticsearch.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>provided</scope>
         </dependency>
 
         <!-- BM25 tokenization (Chinese) -->
