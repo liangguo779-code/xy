@@ -236,37 +236,33 @@ if [ "$STARTUP_OK" = false ]; then
     exit 1
 fi
 
-# 初始化 ES 商品索引
+# 异步重建 ES 索引和 RAG 知识库（不阻塞启动）
 echo ""
-echo "  初始化 ES 商品索引..."
+echo "  异步重建索引与知识库..."
+
+# 获取 admin token（用于商品索引重建 + 知识库重建）
 ADMIN_TOKEN=$(curl -s -X POST http://localhost:9000/api/auth/login \
     -H 'Content-Type: application/json' \
     -d '{"username":"admin","password":"admin123"}' 2>/dev/null \
     | python -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("token",""))' 2>/dev/null)
-if [ -n "$ADMIN_TOKEN" ]; then
-    curl -s -X PUT http://localhost:9000/api/admin/goods/reindex \
-        -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 && \
-        echo "  ✅ ES 商品索引已重建" || \
-        echo "  ⚠️  ES 索引重建失败"
-else
-    echo "  ⚠️  获取 admin token 失败，跳过 ES 重建"
-fi
 
-# 初始化 RAG 知识库 (LangChain4j in-process,触发后台索引任务)
-echo ""
-echo "  初始化 RAG 知识库..."
-MD_COUNT=$(find "$PROJECT_DIR/backend/campus-ai/src/main/resources/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
-if [ "$MD_COUNT" -gt 0 ]; then
-    for attempt in 1 2 3; do
-        if curl -s -X POST http://localhost:9000/api/admin/knowledge/rebuild > /dev/null 2>&1; then
-            echo "  ✅ RAG 知识库已触发（${MD_COUNT} 个文件）"
-            break
-        fi
-        echo "  ⏳ 重试中... ($attempt/3)"
-        sleep 3
-    done
+if [ -n "$ADMIN_TOKEN" ]; then
+    # ES 商品索引重建（异步，不等结果）
+    curl -s -X PUT http://localhost:9000/api/admin/goods/reindex \
+        -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 &
+    echo "  ✅  ES 商品索引重建已触发（后台运行）"
+
+    # RAG 知识库重建（异步，不等结果）
+    MD_COUNT=$(find "$PROJECT_DIR/backend/campus-ai/src/main/resources/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
+    if [ "$MD_COUNT" -gt 0 ]; then
+        curl -s -X POST http://localhost:9000/api/admin/knowledge/rebuild \
+            -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 &
+        echo "  ✅  RAG 知识库重建已触发（${MD_COUNT} 个文件，后台运行）"
+    else
+        echo "  ℹ️   无知识库文件，跳过 RAG 重建"
+    fi
 else
-    echo "  ℹ️  无知识库文件，跳过"
+    echo "  ⚠️  获取 admin token 失败，跳过索引重建"
 fi
 
 # 保存 PID
