@@ -83,7 +83,7 @@ kill_by_port() {
         return 0
     fi
     # macOS/Linux
-    pid=$(lsof -ti :${port}" 2>/dev/null | head -1)
+    pid=$(lsof -ti :${port} 2>/dev/null | head -1)
     if [ -n "$pid" ]; then
         if kill -9 "$pid" 2>/dev/null; then
             echo "  ✅ ${name} (PID: ${pid}) 已停止"

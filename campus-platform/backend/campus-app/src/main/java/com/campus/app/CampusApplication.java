@@ -17,7 +17,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.campus.user.mapper",
         "com.campus.trade.mapper",
         "com.campus.forum.mapper",
-        "com.campus.ai.mapper"
+        "com.campus.ai.chat.mapper"
 })
 public class CampusApplication {
     public static void main(String[] args) {

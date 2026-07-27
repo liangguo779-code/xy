@@ -1,8 +1,8 @@
 package com.campus.app.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.campus.ai.entity.AiChatSession;
-import com.campus.ai.mapper.AiChatSessionMapper;
+import com.campus.ai.chat.entity.AiChatSession;
+import com.campus.ai.chat.mapper.AiChatSessionMapper;
 import com.campus.app.dto.AiStatsVO;
 import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
