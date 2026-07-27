@@ -19,5 +19,70 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
+
+        <!-- LangChain4j core + Spring Boot auto-wiring -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-elasticsearch</artifactId>
+        </dependency>
+
+        <!-- Chinese embedding (BAAI/bge-small-zh, 512-dim). The langchain4j 1.0.0-beta5 BOM
+             ships bge-small-zh but not bge-base-zh — the model is on disk in
+             ${campus.ai.home}/models/bge-small-zh after first start. -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-embeddings-bge-small-zh</artifactId>
+        </dependency>
+
+        <!-- Cross-encoder scoring for the reranker. langchain4j-onnx-scoring loads an
+             ONNX cross-encoder from a local directory; we point it at BGE reranker
+             (BAAI/bge-reranker-base) under ${campus.ai.home}/models/bge-reranker-base. -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-onnx-scoring</artifactId>
+        </dependency>
+
+        <!-- Document parsing for knowledge ingestion is done directly with
+             Apache PDFBox and Apache POI (see com.campus.ai.pipeline.DocumentConverter);
+             no LangChain4j loader is required. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
+        <!-- BM25 tokenization (Chinese) -->
+        <dependency>
+            <groupId>com.huaban</groupId>
+            <artifactId>jieba-analysis</artifactId>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
     </dependencies>
 </project>

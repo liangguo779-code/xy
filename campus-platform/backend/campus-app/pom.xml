@@ -47,6 +47,13 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
+
+        <!-- Loads campus-platform/.env at startup so ${OPENAI_API_KEY} etc. resolve in
+             application.yml without committing secrets. Pairs with me.paulschwarz:spring-dotenv. -->
+        <dependency>
+            <groupId>me.paulschwarz</groupId>
+            <artifactId>spring-dotenv</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
