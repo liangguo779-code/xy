@@ -1,4 +1,4 @@
-package com.campus.ai.dto;
+package com.campus.ai.chat.dto;
 
 import lombok.Data;
 import java.time.LocalDateTime;

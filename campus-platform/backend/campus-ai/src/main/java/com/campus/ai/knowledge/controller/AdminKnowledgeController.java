@@ -1,7 +1,7 @@
-package com.campus.ai.controller;
+package com.campus.ai.knowledge.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
-import com.campus.ai.service.AiService;
+import com.campus.ai.chat.AiService;
 import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;

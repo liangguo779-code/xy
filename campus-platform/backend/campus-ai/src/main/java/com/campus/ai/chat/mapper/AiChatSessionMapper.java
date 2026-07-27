@@ -1,7 +1,7 @@
-package com.campus.ai.mapper;
+package com.campus.ai.chat.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.campus.ai.entity.AiChatSession;
+import com.campus.ai.chat.entity.AiChatSession;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper

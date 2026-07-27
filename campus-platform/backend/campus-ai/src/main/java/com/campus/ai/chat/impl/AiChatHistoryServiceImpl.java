@@ -1,14 +1,14 @@
-package com.campus.ai.service.impl;
+package com.campus.ai.chat.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.campus.ai.dto.AiChatMessageVO;
-import com.campus.ai.dto.AiChatSessionVO;
-import com.campus.ai.entity.AiChatMessage;
-import com.campus.ai.entity.AiChatSession;
-import com.campus.ai.mapper.AiChatMessageMapper;
-import com.campus.ai.mapper.AiChatSessionMapper;
-import com.campus.ai.service.AiChatHistoryService;
+import com.campus.ai.chat.dto.AiChatMessageVO;
+import com.campus.ai.chat.dto.AiChatSessionVO;
+import com.campus.ai.chat.entity.AiChatMessage;
+import com.campus.ai.chat.entity.AiChatSession;
+import com.campus.ai.chat.mapper.AiChatMessageMapper;
+import com.campus.ai.chat.mapper.AiChatSessionMapper;
+import com.campus.ai.chat.AiChatHistoryService;
 import com.campus.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

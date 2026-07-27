@@ -1,8 +1,8 @@
-package com.campus.ai.service;
+package com.campus.ai.chat;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.campus.ai.dto.AiChatMessageVO;
-import com.campus.ai.dto.AiChatSessionVO;
+import com.campus.ai.chat.dto.AiChatMessageVO;
+import com.campus.ai.chat.dto.AiChatSessionVO;
 
 import java.util.List;
 
