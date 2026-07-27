@@ -1,0 +1,42 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+target/
+out/
+build/
+*.class
+*.jar
+*.war
+
+# Logs
+logs/
+*.log
+
+# Local runtime data (AI vector store, knowledge uploads, BM25 snapshots)
+backend/campus-ai/runtime/
+backend/**/runtime/
+
+# Python AI service artifacts
+ai-service/venv/
+ai-service/chroma_data/
+ai-service/__pycache__/
+ai-service/**/__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pids
+.pids
