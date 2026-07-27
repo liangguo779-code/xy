@@ -13,7 +13,12 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL_DIR="$PROJECT_DIR/backend/campus-ai/runtime/models/bge-reranker-base"
 HF_REPO="${HF_RERANKER_REPO:-Xenova/bge-reranker-base}"
-BASE_URL="https://huggingface.co/${HF_REPO}/resolve/main"
+# HF_ENDPOINT lets mainland-China users switch to the official Chinese mirror.
+# Default: hf-mirror.com (HuggingFace-endorsed mirror) so the script works
+# without any extra config. Set HF_ENDPOINT=https://huggingface.co to force the
+# canonical host.
+HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+BASE_URL="${HF_ENDPOINT}/${HF_REPO}/resolve/main"
 
 mkdir -p "$MODEL_DIR"
 

@@ -41,9 +41,18 @@ public final class HuggingFaceModelLoader {
     private HuggingFaceModelLoader() {}
 
     /**
+     * Base URL for the Hugging Face model hub. Defaults to the official Chinese
+     * mirror so the pipeline works in mainland China without extra config; the
+     * Hugging Face canonical host is reachable by setting
+     * {@code HF_ENDPOINT=https://huggingface.co} in the environment.
+     */
+    private static final String HF_ENDPOINT = System.getenv().getOrDefault(
+            "HF_ENDPOINT", "https://hf-mirror.com");
+
+    /**
      * Ensure the given local directory contains the listed files. Downloads from
-     * {@code https://huggingface.co/{repo}/resolve/main/{filename}} if any file is
-     * missing. Returns the directory path on success.
+     * {@code {HF_ENDPOINT}/{repo}/resolve/main/{filename}} if any file is missing.
+     * Returns the directory path on success.
      */
     public static Path ensure(String repo, Path dir, List<String> files) throws IOException {
         Files.createDirectories(dir);
@@ -60,7 +69,7 @@ public final class HuggingFaceModelLoader {
         for (String f : files) {
             Path target = dir.resolve(f);
             if (Files.exists(target)) continue;
-            String url = "https://huggingface.co/" + repo + "/resolve/main/" + f;
+            String url = HF_ENDPOINT + "/" + repo + "/resolve/main/" + f;
             log.info("Downloading {} -> {}", url, target);
             try {
                 HttpRequest req = HttpRequest.newBuilder(URI.create(url))
