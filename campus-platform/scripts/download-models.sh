@@ -13,37 +13,25 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL_DIR="$PROJECT_DIR/backend/campus-ai/runtime/models/bge-reranker-base"
 HF_REPO="${HF_RERANKER_REPO:-Xenova/bge-reranker-base}"
-# HF_ENDPOINT lets mainland-China users switch to the official Chinese mirror.
-# Default: hf-mirror.com (HuggingFace-endorsed mirror) so the script works
-# without any extra config. Set HF_ENDPOINT=https://huggingface.co to force the
-# canonical host.
+# hf-mirror.com is the HuggingFace-endorsed Chinese mirror; works in mainland China.
+# Set HF_ENDPOINT=https://huggingface.co to force the canonical host.
 HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 BASE_URL="${HF_ENDPOINT}/${HF_REPO}/resolve/main"
 
 mkdir -p "$MODEL_DIR"
 
-# Xenova/bge-reranker-base stores ONNX under onnx/ subdirectory.
-# We download the int8 quantized version (~278MB) instead of the full model
-# (~1.1GB) to keep the download fast and the disk footprint reasonable.
-# (filename -> remote path -> expected-min-bytes)
-FILES=(
-  "model.onnx -> onnx/model_int8.onnx|278000000"
-  "tokenizer.json|700000"
-)
+# Parallel arrays: local filename, remote path (relative to BASE_URL), min-bytes.
+#   model.onnx  — we fetch onnx/model_int8.onnx (~278MB int8) from the Xenova repo
+#   tokenizer.json — downloaded from repo root (~17MB)
+LOCAL_NAMES=(model.onnx  tokenizer.json)
+REMOTE_PATHS=(onnx/model_int8.onnx  tokenizer.json)
+MIN_SIZES=(278000000   700000)
 
 # Use curl on Windows Git Bash, wget elsewhere.
 if command -v curl > /dev/null 2>&1; then
-  download() {
-    local url="$1"
-    local target="$2"
-    curl -L --fail --silent --show-error -o "$target" "$url"
-  }
+  download() { curl -L --fail --silent --show-error -o "$1" "$2"; }
 elif command -v wget > /dev/null 2>&1; then
-  download() {
-    local url="$1"
-    local target="$2"
-    wget -q -O "$target" "$url"
-  }
+  download() { wget -q -O "$1" "$2"; }
 else
   echo "❌  Neither curl nor wget is available; install one of them first." >&2
   exit 1
@@ -53,18 +41,16 @@ echo "=========================================="
 echo "  Pre-downloading BGE reranker model"
 echo "  source: ${HF_REPO}"
 echo "  target: ${MODEL_DIR}"
+echo "  mirror: ${HF_ENDPOINT}"
 echo "=========================================="
 
 NEED_DOWNLOAD=0
-for entry in "${FILES[@]}"; do
-  # Parse "localName -> remotePath|expectedSize"
-  local_name="${entry%% -> *}"
-  rest="${entry##* -> }"
-  remote_path="${rest%%|*}"
-  minsize="${rest##*|}"
-  target="$MODEL_DIR/$local_name"
+for i in "${!LOCAL_NAMES[@]}"; do
+  fname="${LOCAL_NAMES[$i]}"
+  minsize="${MIN_SIZES[$i]}"
+  target="$MODEL_DIR/$fname"
   if [ -f "$target" ] && [ "$(stat -c%s "$target" 2>/dev/null || stat -f%z "$target")" -ge "$minsize" ]; then
-    echo "  ✅  ${local_name} (cached)"
+    echo "  ✅  ${fname} (cached)"
   else
     NEED_DOWNLOAD=1
   fi
@@ -75,18 +61,17 @@ if [ "$NEED_DOWNLOAD" -eq 0 ]; then
   exit 0
 fi
 
-for entry in "${FILES[@]}"; do
-  local_name="${entry%% -> *}"
-  rest="${entry##* -> }"
-  remote_path="${rest%%|*}"
-  target="$MODEL_DIR/$local_name"
+for i in "${!LOCAL_NAMES[@]}"; do
+  fname="${LOCAL_NAMES[$i]}"
+  remote="${REMOTE_PATHS[$i]}"
+  target="$MODEL_DIR/$fname"
   if [ -f "$target" ]; then
-    echo "  ↻  Re-downloading ${local_name} (existing file too small / corrupt)"
+    echo "  ↻  Re-downloading ${fname} (existing file too small / corrupt)"
     rm -f "$target"
   fi
-  url="$BASE_URL/$remote_path"
-  echo "  ↓  ${local_name}  ←  ${url}"
-  download "$url" "$target"
+  url="$BASE_URL/$remote"
+  echo "  ↓  ${fname}  ←  ${url}"
+  download "$target" "$url"
   size=$(stat -c%s "$target" 2>/dev/null || stat -f%z "$target")
   echo "      (${size} bytes)"
 done
@@ -97,4 +82,4 @@ if [ "${HF_HUB_OFFLINE:-0}" = "1" ]; then
 fi
 
 echo
-echo "✅  BGE reranker is ready. Subsequent `bash start-dev.sh` runs will not redownload."
+echo "✅  BGE reranker is ready. Subsequent \`bash start-dev.sh\` runs will not redownload."
