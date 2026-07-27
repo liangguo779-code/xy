@@ -78,7 +78,7 @@ public class LangChain4jConfig {
                 .apiKey(l.getApiKey() == null ? "missing" : l.getApiKey())
                 .modelName(l.getModel())
                 .temperature(l.getTemperature())
-                .timeout(Duration.ofSeconds(l.getTimeout()))
+                .timeout(l.getTimeout())
                 .build();
     }
 

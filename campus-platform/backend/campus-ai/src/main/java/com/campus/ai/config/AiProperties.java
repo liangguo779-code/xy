@@ -68,8 +68,8 @@ public class AiProperties {
         private String apiKey;
         private String model = "deepseek-chat";
         private double temperature = 0.3;
-        /** Read timeout in seconds. */
-        private int timeout = 60;
+        /** Read timeout. Accepts "60s", "1m" (Spring Duration format). */
+        private java.time.Duration timeout = java.time.Duration.ofSeconds(60);
     }
 
     @Data
