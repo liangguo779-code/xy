@@ -68,7 +68,12 @@ public class VectorStoreFacade {
         if (chunks == null || chunks.isEmpty()) return;
         try {
             BulkRequest.Builder br = new BulkRequest.Builder();
+            int indexed = 0;
             for (ChunkDto c : chunks) {
+                if (c.getContent() == null || c.getContent().isBlank()) {
+                    log.warn("Skipping chunk with blank text: source={}, index={}", c.getSource(), c.getChunkIndex());
+                    continue;
+                }
                 float[] vec = embed(c.getContent());
                 Map<String, Object> doc = new LinkedHashMap<>();
                 doc.put("text", c.getContent());
@@ -88,7 +93,8 @@ public class VectorStoreFacade {
                 resp.items().stream().filter(i -> i.error() != null).findFirst()
                         .ifPresent(i -> log.warn("First bulk error: {}: {}", i.id(), i.error().reason()));
             }
-            log.info("Vector store ingested {} chunks", chunks.size());
+            indexed = (int) resp.items().stream().filter(i -> i.error() == null).count();
+            log.info("Vector store ingested {}/{} chunks", indexed, chunks.size());
         } catch (Exception e) {
             log.error("Vector store addAll failed: {}", e.getMessage(), e);
             throw new RuntimeException(e);

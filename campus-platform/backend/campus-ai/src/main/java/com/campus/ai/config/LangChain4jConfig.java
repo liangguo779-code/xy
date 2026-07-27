@@ -78,19 +78,22 @@ public class LangChain4jConfig {
         AiProperties.Vector v = props.getVector();
         Path modelDir = HuggingFaceModelLoader.underHome(
                 props.getHome(), "models", "bge-reranker-base");
-        try {
-            HuggingFaceModelLoader.ensure(v.getRerankerHfRepo(), modelDir, List.of(
-                    "model.onnx", "tokenizer.json"
-            ));
-            log.info("Loading BGE reranker (cross-encoder) from {}", modelDir);
-            return new OnnxScoringModel(
-                    modelDir.resolve("model.onnx").toString(),
-                    modelDir.resolve("tokenizer.json").toString());
-        } catch (Exception e) {
-            log.warn("⚠️  BGE reranker 模型加载失败: {} — 重排序将跳过，返回原始顺序", e.getMessage());
-            log.warn("   可手动下载: bash scripts/download-models.sh");
-            return new NoOpScoringModel();
+        Path modelFile = modelDir.resolve("model.onnx");
+        Path tokenizerFile = modelDir.resolve("tokenizer.json");
+        // 如果本地已有文件（download-models.sh 已下载），直接用；不触发网络下载
+        if (java.nio.file.Files.exists(modelFile) && java.nio.file.Files.exists(tokenizerFile)) {
+            try {
+                log.info("Loading BGE reranker (cross-encoder) from {}", modelDir);
+                return new OnnxScoringModel(
+                        modelFile.toString(), tokenizerFile.toString());
+            } catch (Exception e) {
+                log.warn("BGE reranker 加载失败: {} — 重排序将跳过", e.getMessage());
+                return new NoOpScoringModel();
+            }
         }
+        log.warn("⚠️  BGE reranker 模型不存在 ({}), 跳过重排序", modelDir);
+        log.warn("   可运行: bash scripts/download-models.sh");
+        return new NoOpScoringModel();
     }
 
     /** Null-safe fallback when the reranker model can't be downloaded. */

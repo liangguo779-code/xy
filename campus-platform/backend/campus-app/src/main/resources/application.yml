@@ -78,7 +78,7 @@ campus:
     vector:
       index-name: campus_knowledge
       embedding-model: ${AI_EMBEDDING_MODEL:BAAI/bge-base-zh-v1.5}
-      embedding-dim: 768
+      embedding-dim: 512
       rerank-topk: 5
       retrieve-topk: 10
     llm:
