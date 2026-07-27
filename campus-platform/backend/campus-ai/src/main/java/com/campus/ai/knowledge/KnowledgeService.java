@@ -201,8 +201,13 @@ public class KnowledgeService {
             List<ChunkDto> chunks = splitter.split(name, markdown,
                     props.getKnowledge().getChunkSize(),
                     props.getKnowledge().getChunkOverlap());
-            vectorStore.removeBySource(name);
+            // 1. Add new chunks first — if bulk fails, old data stays untouched.
             vectorStore.addAll(chunks);
+            // 2. Now remove old chunks that have different IDs from the new ones.
+            Set<String> newIds = chunks.stream()
+                    .map(c -> c.getSource() + "_" + c.getChunkIndex())
+                    .collect(java.util.stream.Collectors.toSet());
+            vectorStore.removeStaleBySource(name, newIds);
             bm25.addAll(chunks);
             log.info("Ingested {} chunks from {}", chunks.size(), name);
             return chunks.size();

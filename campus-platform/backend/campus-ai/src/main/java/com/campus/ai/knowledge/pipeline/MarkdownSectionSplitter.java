@@ -9,24 +9,80 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Markdown-aware chunker that preserves section headings. Mirrors
- * {@code rag.splitter.split_markdown} from the previous Python service:
- * split on {@code #}/{@code ##}/{@code ###} headings, then sub-split any section larger
- * than the configured chunk size by subheadings, paragraphs, or character windowing.
+ * Markdown-aware chunker tuned for Chinese policy documents (e.g. 《学生手册》).
  *
- * <p>Output metadata (source, chunk_index, section_title, section_path) is preserved so the
- * frontend citation list and the persisted BM25/vector metadata stay compatible.
+ * <p>Splits on three hierarchies in order of precedence:
+ * <ol>
+ *   <li>{@code #} / {@code ##} / {@code ###} Markdown headings (e.g. {@code # 第一章 总则})</li>
+ *   <li>{@code 第十X条} / {@code 第X章} / {@code 第X节} clauses (e.g. {@code **第十条** 申请重学时间...})</li>
+ *   <li>Sub-section enumeration lines {@code （一） / （二） / （三）}</li>
+ * </ol>
+ *
+ * <p>For each chunk, the section path (e.g. "第三章 学业 / 第十条 重学") is prepended to
+ * the chunk content so the reference displayed in the frontend is self-contained
+ * ("（path）...actual content...") without the user having to click through to
+ * the full document.
+ *
+ * <p>Document header noise (e.g. "（教育部令 第 41 号）") is detected and stripped from
+ * the top of each section so the first chunk of a chapter doesn't waste its budget
+ * on a citation.
  */
 @Component
 public class MarkdownSectionSplitter {
 
-    private static final Pattern HEADING = Pattern.compile("^(#{1,6})\\s+(.*)$", Pattern.MULTILINE);
+    private static final Pattern HEADING =
+            Pattern.compile("^(#{1,6})\\s+(.*)$", Pattern.MULTILINE);
+    // NOTE: **第十条** / **第一章** etc. are kept as bold TEXT in the chunks, NOT as
+    // section delimiters. The student handbook's actual section hierarchy is purely
+    // Markdown headings (#/##/###). Using ARTICLE as a section boundary fragments
+    // the body and loses surrounding context.
+    // Document header lines (e.g. "（教育部令 第 41 号）") that waste chunk budget
+    private static final Pattern DOC_HEADER =
+            Pattern.compile("^\\s*[（(][^）)]*[）)]\\s*$", Pattern.MULTILINE);
+    // TOC heading markers (both Chinese and English)
+    private static final String[] TOC_MARKERS = {"目录", "Contents", "Table of Contents", "TOC"};
+
+    /**
+     * Strip table-of-contents sections from the markdown before chunking.
+     * A TOC section starts with a heading containing "目录"/"Contents" and runs until
+     * the next heading of the same or higher level. These are navigation aids with no
+     * policy content — keeping them creates hundreds of noise chunks.
+     */
+    private static String stripToc(String markdown) {
+        // Walk each line looking for a heading containing a TOC marker.
+        for (String marker : TOC_MARKERS) {
+            String[] lines = markdown.split("\\n", -1);
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i];
+                if (!line.startsWith("#") || !line.contains(marker)) continue;
+                int level = 0;
+                while (level < line.length() && line.charAt(level) == '#') level++;
+                for (int j = i + 1; j < lines.length; j++) {
+                    if (lines[j].startsWith("#") && countHashes(lines[j]) <= level) {
+                        return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i))
+                                + "\n"
+                                + String.join("\n", java.util.Arrays.copyOfRange(lines, j, lines.length));
+                    }
+                }
+                return String.join("\n", java.util.Arrays.copyOfRange(lines, 0, i));
+            }
+        }
+        return markdown;
+    }
+
+    private static int countHashes(String line) {
+        int count = 0;
+        while (count < line.length() && line.charAt(count) == '#') count++;
+        return count;
+    }
 
     public List<ChunkDto> split(String source, String markdown, int chunkSize, int chunkOverlap) {
         if (markdown == null || markdown.isBlank()) {
             return List.of();
         }
+        markdown = stripToc(markdown);
         List<Section> sections = parseSections(markdown);
+        System.out.println("[DEBUG] sections=" + sections.size() + " titles=" + sections.stream().map(s -> s.title).toList() + " md_len=" + markdown.length());
         List<ChunkDto> chunks = new ArrayList<>();
         int chunkIndex = 0;
         for (Section sec : sections) {
@@ -38,17 +94,20 @@ public class MarkdownSectionSplitter {
                         .sectionTitle(sec.title)
                         .sectionPath(sec.path)
                         .build());
+                chunkIndex++;
             }
         }
         return chunks;
     }
 
     private List<Section> parseSections(String markdown) {
-        Matcher m = HEADING.matcher(markdown);
         List<Hit> hits = new ArrayList<>();
+        Matcher m = HEADING.matcher(markdown);
         while (m.find()) {
             hits.add(new Hit(m.start(), m.end(), m.group(1).length(), m.group(2).trim()));
         }
+        // Remove ARTICLE pattern — no longer used as a section boundary.
+
         if (hits.isEmpty()) {
             return List.of(new Section("__root__", "__root__", markdown));
         }
@@ -57,60 +116,82 @@ public class MarkdownSectionSplitter {
             Hit h = hits.get(i);
             int bodyStart = h.end;
             int bodyEnd = i + 1 < hits.size() ? hits.get(i + 1).start : markdown.length();
-            String body = markdown.substring(bodyStart, bodyEnd);
+            String body = stripDocHeaders(markdown.substring(bodyStart, bodyEnd));
             String path = buildPath(hits, i);
             out.add(new Section(h.title, path, body));
         }
         return out;
     }
 
+    /** Remove leading lines that look like document reference numbers. */
+    private static String stripDocHeaders(String body) {
+        String[] lines = body.split("\\R", -1);
+        int start = 0;
+        while (start < lines.length && DOC_HEADER.matcher(lines[start]).matches()) {
+            start++;
+        }
+        if (start == 0) return body;
+        return String.join("\n", java.util.Arrays.copyOfRange(lines, start, lines.length));
+    }
+
     private static String buildPath(List<Hit> hits, int idx) {
+        // Keep only the last 2 levels to avoid path explosion (TOC has 50+ headings).
+        int start = Math.max(0, idx - 1);
         StringBuilder path = new StringBuilder();
-        // Walk from the start of the file to the i-th heading — every preceding heading
-        // is a parent in the section's breadcrumb.
-        for (int j = 0; j <= idx; j++) {
-            if (j > 0) path.append(" / ");
+        for (int j = start; j <= idx; j++) {
+            if (path.length() > 0) path.append(" / ");
             path.append(hits.get(j).title);
         }
         return path.toString();
     }
 
-    private record Hit(int start, int end, int level, String title) {}
-
     private List<String> splitSection(Section sec, int chunkSize, int chunkOverlap) {
         String body = sec.body.trim();
+        if (body.isEmpty()) return List.of();
+        // Prepend section path so each chunk is self-contained for the frontend citation.
+        String header = sec.path.isEmpty() || "__root__".equals(sec.path) ? "" : "【" + sec.path + "】\n";
         if (body.length() <= chunkSize) {
-            return List.of(body);
+            return List.of(header + body);
         }
-        // Try splitting by subheadings (## or deeper) inside this section.
-        Pattern sub = Pattern.compile("(?m)^#{2,6}\\s+.*$");
+        // Try splitting by subheadings INSIDE this section.
+        // Only match headings DEEPER than the section heading to avoid splitting on
+        // sibling headings that appear in the body (e.g. ## Mid inside # Top's body).
+        int subLevel = sec.path.isEmpty() || "__root__".equals(sec.path) ? 2 : getHeadingLevel(sec.path) + 1;
+        Pattern sub = Pattern.compile("(?m)^#{" + subLevel + ",6}\\s+.*$");
         Matcher sm = sub.matcher(body);
         if (sm.find()) {
             List<String> subParts = new ArrayList<>();
             int start = 0;
             sm.reset();
             while (sm.find()) {
-                if (sm.start() > start) {
-                    subParts.add(body.substring(start, sm.start()));
-                }
+                if (sm.start() > start) subParts.add(body.substring(start, sm.start()));
                 start = sm.start();
             }
             subParts.add(body.substring(start));
             List<String> result = new ArrayList<>();
             for (String p : subParts) {
                 if (p.length() > chunkSize) {
-                    result.addAll(splitByParagraphs(p, chunkSize, chunkOverlap));
+                    // Only prepend the header to the FIRST part of the section to avoid
+                    // repeating the breadcrumb in every chunk.
+                    String first = p;
+                    List<String> pieces = splitByParagraphs(first, chunkSize, chunkOverlap);
+                    for (int i = 0; i < pieces.size(); i++) {
+                        result.add(i == 0 && !header.isEmpty() ? header + pieces.get(i) : pieces.get(i));
+                    }
                 } else {
                     result.add(p);
                 }
             }
             return result;
         }
-        return splitByParagraphs(body, chunkSize, chunkOverlap);
+        List<String> pieces = splitByParagraphs(body, chunkSize, chunkOverlap);
+        for (int i = 0; i < pieces.size(); i++) {
+            pieces.set(i, i == 0 && !header.isEmpty() ? header + pieces.get(i) : pieces.get(i));
+        }
+        return pieces;
     }
 
     private List<String> splitByParagraphs(String body, int chunkSize, int chunkOverlap) {
-        // Split on blank lines; merge small paragraphs into a single chunk up to chunkSize.
         String[] paragraphs = body.split("\\n\\s*\\n");
         List<String> chunks = new ArrayList<>();
         StringBuilder cur = new StringBuilder();
@@ -150,5 +231,11 @@ public class MarkdownSectionSplitter {
         return out;
     }
 
+    /** Extract the heading level from a path string like "Top / Mid / Leaf" → 3. */
+    private static int getHeadingLevel(String path) {
+        return path.split(" / ").length;
+    }
+
     private record Section(String title, String path, String body) {}
+    private record Hit(int start, int end, int level, String title) {}
 }

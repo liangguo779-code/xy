@@ -66,14 +66,16 @@ ai:
 # campus-platform/.env via the dotenv-maven-plugin (see backend/campus-app/pom.xml).
 campus:
   ai:
-    home: ${AI_HOME:./runtime}
+    home: ${AI_HOME:./campus-ai/runtime}
     knowledge:
       dir: ${AI_KNOWLEDGE_DIR:${campus.ai.home}/knowledge}
       max-file-size: 20MB
       allowed-suffixes: .md,.txt,.pdf,.docx,.doc
-      chunk-size: 500
+      chunk-size: 800
       chunk-overlap: 50
-      score-threshold: 0.8
+      # Score threshold for retry: for cosine (BGE), lower == more similar.
+      # Default 0.05 is permissive (always accept); raise to be stricter.
+      score-threshold: 0.05
       bm25-k: 60
     vector:
       index-name: campus_knowledge
