@@ -106,9 +106,21 @@ public class LangChain4jConfig {
                     modelDir.resolve("model.onnx").toString(),
                     modelDir.resolve("tokenizer.json").toString());
         } catch (Exception e) {
-            log.warn("⚠️  BGE reranker 模型加载失败: {} — 重排序将被跳过", e.getMessage());
+            log.warn("⚠️  BGE reranker 模型加载失败: {} — 重排序将跳过，返回原始顺序", e.getMessage());
             log.warn("   可手动下载: bash scripts/download-models.sh");
-            return null;
+            return new NoOpScoringModel();
+        }
+    }
+
+    /** Null-safe fallback when the reranker model can't be downloaded. */
+    private static class NoOpScoringModel implements ScoringModel {
+        @Override
+        public dev.langchain4j.model.output.Response<List<Double>> scoreAll(
+                List<dev.langchain4j.data.segment.TextSegment> segments, String query) {
+            // Return identity scores — rank order preserved, no reranking.
+            List<Double> scores = new java.util.ArrayList<>();
+            for (int i = 0; i < segments.size(); i++) scores.add((double) -i);
+            return dev.langchain4j.model.output.Response.from(scores);
         }
     }
 }

@@ -166,10 +166,6 @@ public class RagOrchestrator {
 
     private List<HybridRetriever.Hit> rerank(String question, List<HybridRetriever.Hit> hits, int topK) {
         if (hits.isEmpty()) return hits;
-        if (scoringModel == null) {
-            log.warn("ScoringModel not available (model download may have failed); skipping rerank");
-            return hits;
-        }
         List<dev.langchain4j.data.segment.TextSegment> segments = new ArrayList<>(hits.size());
         for (HybridRetriever.Hit h : hits) segments.add(dev.langchain4j.data.segment.TextSegment.from(h.content()));
         List<Double> scores = scoringModel.scoreAll(segments, question).content();
