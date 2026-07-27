@@ -170,7 +170,7 @@ wait_for_service() {
     return 1
 }
 
-wait_for_service "http://localhost:9000/api/ai/health" "campus-app AI" || STARTUP_OK=false
+wait_for_service "http://localhost:9000/api/ai/health" "campus-app AI" 180 || STARTUP_OK=false
 
 if [ "$STARTUP_OK" = false ]; then
     echo ""

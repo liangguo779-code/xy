@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -82,6 +83,7 @@ public class LangChain4jConfig {
     }
 
     @Bean
+    @Lazy
     public ScoringModel scoringModel() throws Exception {
         AiProperties.Vector v = props.getVector();
         Path modelDir = HuggingFaceModelLoader.underHome(
