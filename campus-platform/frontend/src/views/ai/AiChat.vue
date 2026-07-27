@@ -31,7 +31,11 @@
             </div>
             <div class="bubble">
               <div v-if="msg.role === 'user'" class="text">{{ msg.content }}</div>
-              <div v-else class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+              <div v-else-if="msg.content" class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+              <div v-else class="thinking-indicator">
+                <el-icon class="is-loading"><Loading /></el-icon>
+                <span>{{ msg.stage || '思考中...' }}</span>
+              </div>
 
               <div v-if="msg.sources?.length" class="sources-section">
                 <el-divider content-position="left">
@@ -53,12 +57,6 @@
                   </el-collapse-transition>
                 </div>
               </div>
-            </div>
-          </div>
-          <div v-if="loading" class="message assistant">
-            <div class="avatar"><el-icon :size="20"><MagicStick /></el-icon></div>
-            <div class="bubble">
-              <el-icon class="is-loading"><Loading /></el-icon> {{ currentStage || '思考中...' }}
             </div>
           </div>
         </div>
@@ -97,9 +95,9 @@ const input = ref('')
 const loading = ref(false)
 const messages = ref([])
 const messagesRef = ref()
+
 const sessions = ref([])
 const currentSessionId = ref(null)
-const currentStage = ref('')
 
 const suggestedQuestions = [
   '休学怎么办理？',
@@ -212,20 +210,22 @@ async function handleSend() {
   messages.value.push({ role: 'user', content: question })
   input.value = ''
   loading.value = true
-  currentStage.value = ''
   scrollToBottom()
 
-  // 先添加一个空的 assistant 消息，后续逐 token 填充
-  const assistantMsg = reactive({ role: 'assistant', content: '', sources: [] })
+  // 先添加一个空的 assistant 消息，后续逐 token 填充；stage 字段承载
+  // 服务端"正在分析问题意图..."等阶段文案，避免独立的 loading 占位
+  const assistantMsg = reactive({
+    role: 'assistant', content: '', sources: [], stage: '思考中...'
+  })
   messages.value.push(assistantMsg)
 
   try {
     await chatStream(
       { question, sessionId: currentSessionId.value },
-      // onToken: 逐 token 追加内容
+      // onToken: 逐 token 追加内容，并清空 stage（答案正文接管 UI）
       (token) => {
         assistantMsg.content += token
-        currentStage.value = ''
+        assistantMsg.stage = ''
         scrollToBottom()
       },
       // onSources: 接收来源列表
@@ -234,11 +234,11 @@ async function handleSend() {
       },
       // onDone: 流结束
       () => {
-        currentStage.value = ''
+        assistantMsg.stage = ''
       },
-      // onStage: 更新思考阶段
+      // onStage: 更新思考阶段文案
       (event) => {
-        currentStage.value = event.message || ''
+        assistantMsg.stage = event.message || '思考中...'
       },
       // onSession: 接收后端分配的 sessionId（首问时为 null，后端会创建）
       (sessionId) => {
