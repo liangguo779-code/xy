@@ -24,8 +24,9 @@ public class AiProperties {
     public static class Knowledge {
         /** Writable knowledge directory. Seeded from classpath on first start. */
         private String dir;
-        /** Max upload size in bytes. Default 20 MB. */
-        private long maxFileSize = 20L * 1024L * 1024L;
+        /** Max upload size (Spring DataSize: accepts "20MB", "50mb", bytes). Default 20 MB. */
+        private org.springframework.util.unit.DataSize maxFileSize =
+                org.springframework.util.unit.DataSize.ofMegabytes(20);
         /** Allowed suffixes (comma-separated). */
         private String allowedSuffixes = ".md,.txt,.pdf,.docx,.doc";
         /** Markdown chunk size (chars). */

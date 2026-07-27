@@ -247,7 +247,7 @@ public class KnowledgeService {
     }
 
     private void validateSize(MultipartFile file) {
-        if (file.getSize() > props.getKnowledge().getMaxFileSize()) {
+        if (file.getSize() > props.getKnowledge().getMaxFileSize().toBytes()) {
             throw new BusinessException(400, "文件超过大小限制");
         }
     }
