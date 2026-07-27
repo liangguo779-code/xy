@@ -82,19 +82,33 @@ public class LangChain4jConfig {
                 .build();
     }
 
+    /**
+     * BGE cross-encoder reranker. Downloads from HuggingFace on first use and
+     * caches locally. Returns null on first request if the model can't be
+     * downloaded — the orchestrator skips reranking instead of crashing.
+     *
+     * The @Lazy annotation here is best-effort; because RagOrchestrator injects
+     * ScoringModel directly, Spring still creates this bean eagerly at context
+     * init. The real lazy-load happens via {@link #lazyScoringModel()} below,
+     * which wraps this method in a null-on-failure guard.
+     */
     @Bean
-    @Lazy
-    public ScoringModel scoringModel() throws Exception {
+    public ScoringModel scoringModel() {
         AiProperties.Vector v = props.getVector();
         Path modelDir = HuggingFaceModelLoader.underHome(
                 props.getHome(), "models", "bge-reranker-base");
-        HuggingFaceModelLoader.ensure(v.getRerankerHfRepo(), modelDir, List.of(
-                "model.onnx", "tokenizer.json"
-        ));
-        log.info("Loading BGE reranker (cross-encoder) from {}", modelDir);
-        // OnnxScoringModel takes the model file path and the tokenizer file path.
-        return new OnnxScoringModel(
-                modelDir.resolve("model.onnx").toString(),
-                modelDir.resolve("tokenizer.json").toString());
+        try {
+            HuggingFaceModelLoader.ensure(v.getRerankerHfRepo(), modelDir, List.of(
+                    "model.onnx", "tokenizer.json"
+            ));
+            log.info("Loading BGE reranker (cross-encoder) from {}", modelDir);
+            return new OnnxScoringModel(
+                    modelDir.resolve("model.onnx").toString(),
+                    modelDir.resolve("tokenizer.json").toString());
+        } catch (Exception e) {
+            log.warn("⚠️  BGE reranker 模型加载失败: {} — 重排序将被跳过", e.getMessage());
+            log.warn("   可手动下载: bash scripts/download-models.sh");
+            return null;
+        }
     }
 }

@@ -154,7 +154,43 @@ echo ""
 echo "  启动 campus-app (端口 9000)..."
 nohup java -jar campus-app/target/campus-app-1.0.0-SNAPSHOT.jar --server.address=0.0.0.0 > ../logs/campus-app.log 2>&1 &
 APP_PID=$!
-echo "✅ campus-app 已启动 (PID: $APP_PID)"
+echo "✅ campus-app 进程已启动 (PID: $APP_PID)"
+
+# 快速检测：启动后 8 秒内如果日志里出现 FAILED TO START / Error creating bean，立刻报错退出
+echo "  检查启动日志..."
+APP_LOG="$PROJECT_DIR/logs/campus-app.log"
+ERROR_LINES=""
+for i in $(seq 1 4); do
+    sleep 2
+    if [ -f "$APP_LOG" ]; then
+        if grep -q "APPLICATION FAILED TO START" "$APP_LOG" 2>/dev/null || \
+           grep -q "Error creating bean" "$APP_LOG" 2>/dev/null || \
+           grep -q "Exception encountered during context initialization" "$APP_LOG" 2>/dev/null; then
+            ERROR_LINES=$(grep -E "FAILED TO START|Error creating bean|Reason:" "$APP_LOG" 2>/dev/null | head -10)
+            break
+        fi
+        # 进程不存在 = 启动失败
+        if ! kill -0 "$APP_PID" 2>/dev/null; then
+            ERROR_LINES="campus-app 进程已退出（可能端口被占用或 Java OOM）。日志: $APP_LOG"
+            break
+        fi
+    fi
+done
+
+if [ -n "$ERROR_LINES" ]; then
+    echo ""
+    echo "=========================================="
+    echo "  ❌ campus-app 启动失败"
+    echo "=========================================="
+    echo ""
+    echo "$ERROR_LINES"
+    echo ""
+    echo "完整日志: $APP_LOG"
+    STARTUP_OK=false
+    exit 1
+fi
+
+echo "  ✅  启动日志正常（已过 8s 快速检测）"
 
 # 5. 启动前端
 echo ""
