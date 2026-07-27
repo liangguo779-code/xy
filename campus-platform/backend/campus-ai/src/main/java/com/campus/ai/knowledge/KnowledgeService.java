@@ -201,13 +201,13 @@ public class KnowledgeService {
             List<ChunkDto> chunks = splitter.split(name, markdown,
                     props.getKnowledge().getChunkSize(),
                     props.getKnowledge().getChunkOverlap());
-            // 1. Add new chunks first — if bulk fails, old data stays untouched.
+            // 1. Delete all existing chunks for this source before adding new ones.
+            //    This is the original Python behavior (delete-then-add). If addAll fails
+            //    afterward, the data is lost — but this is the only way to guarantee
+            //    no stale chunks remain when chunk count or indices change.
+            vectorStore.removeBySource(name);
+            // 2. Add new chunks.
             vectorStore.addAll(chunks);
-            // 2. Now remove old chunks that have different IDs from the new ones.
-            Set<String> newIds = chunks.stream()
-                    .map(c -> c.getSource() + "_" + c.getChunkIndex())
-                    .collect(java.util.stream.Collectors.toSet());
-            vectorStore.removeStaleBySource(name, newIds);
             bm25.addAll(chunks);
             log.info("Ingested {} chunks from {}", chunks.size(), name);
             return chunks.size();

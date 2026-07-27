@@ -114,6 +114,11 @@ public class RagOrchestrator {
         s.bestScore = s.searchResults.isEmpty() ? 999d : s.searchResults.get(0).score();
         sink.accept(new StreamEvent("stage", "rerank_done", STAGE_MESSAGES.get("rerank_done")));
 
+        // Retry policy: For cosine similarity (BGE reranker), smaller score == more relevant.
+        // The original code had `bestScore > threshold` which was tuned for Chroma's L2 distance
+        // (where smaller == better too, but the direction was inverted). For cosine we want
+        // to retry if the best score is ABOVE the threshold (i.e. not relevant enough).
+        // For the NoOpScoringModel fallback, scores are 0,-1,-2,... and lower == better; same rule.
         double threshold = props.getKnowledge().getScoreThreshold();
         while (s.bestScore > threshold && s.retryCount < MAX_RETRIES) {
             s.retryCount++;
