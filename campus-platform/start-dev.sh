@@ -97,6 +97,18 @@ echo "[4/6] 构建后端单体应用..."
 
 cd "$PROJECT_DIR/backend"
 
+# 4a. 确保 BGE reranker 模型已下载（首次运行 ~280MB + 几秒，后续秒过）
+MODEL_DIR="$PROJECT_DIR/backend/campus-ai/runtime/models/bge-reranker-base"
+if [ ! -f "$MODEL_DIR/model.onnx" ]; then
+    echo "  首次启动：下载 BGE reranker 模型（~280MB）..."
+    bash "$PROJECT_DIR/scripts/download-models.sh" || {
+        echo "⚠️  模型下载失败，campus-app 仍会启动，但首次 /api/ai/chat 请求会变慢。"
+        echo "    可以稍后重跑: bash scripts/download-models.sh"
+    }
+else
+    echo "  ✅  BGE reranker 已缓存 ($MODEL_DIR)"
+fi
+
 # 检查并等待旧的.jar文件被释放
 JAR_FILE="$PROJECT_DIR/backend/campus-app/target/campus-app-1.0.0-SNAPSHOT.jar"
 if [ -f "$JAR_FILE" ]; then
