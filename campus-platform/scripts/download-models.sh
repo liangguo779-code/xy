@@ -22,9 +22,12 @@ BASE_URL="${HF_ENDPOINT}/${HF_REPO}/resolve/main"
 
 mkdir -p "$MODEL_DIR"
 
-# (filename, expected-min-bytes)
+# Xenova/bge-reranker-base stores ONNX under onnx/ subdirectory.
+# We download the int8 quantized version (~278MB) instead of the full model
+# (~1.1GB) to keep the download fast and the disk footprint reasonable.
+# (filename -> remote path -> expected-min-bytes)
 FILES=(
-  "model.onnx|278000000"
+  "model.onnx -> onnx/model_int8.onnx|278000000"
   "tokenizer.json|700000"
 )
 
@@ -54,11 +57,14 @@ echo "=========================================="
 
 NEED_DOWNLOAD=0
 for entry in "${FILES[@]}"; do
-  fname="${entry%%|*}"
-  minsize="${entry##*|}"
-  target="$MODEL_DIR/$fname"
+  # Parse "localName -> remotePath|expectedSize"
+  local_name="${entry%% -> *}"
+  rest="${entry##* -> }"
+  remote_path="${rest%%|*}"
+  minsize="${rest##*|}"
+  target="$MODEL_DIR/$local_name"
   if [ -f "$target" ] && [ "$(stat -c%s "$target" 2>/dev/null || stat -f%z "$target")" -ge "$minsize" ]; then
-    echo "  ✅  ${fname} (cached)"
+    echo "  ✅  ${local_name} (cached)"
   else
     NEED_DOWNLOAD=1
   fi
@@ -70,14 +76,16 @@ if [ "$NEED_DOWNLOAD" -eq 0 ]; then
 fi
 
 for entry in "${FILES[@]}"; do
-  fname="${entry%%|*}"
-  target="$MODEL_DIR/$fname"
+  local_name="${entry%% -> *}"
+  rest="${entry##* -> }"
+  remote_path="${rest%%|*}"
+  target="$MODEL_DIR/$local_name"
   if [ -f "$target" ]; then
-    echo "  ↻  Re-downloading ${fname} (existing file too small / corrupt)"
+    echo "  ↻  Re-downloading ${local_name} (existing file too small / corrupt)"
     rm -f "$target"
   fi
-  url="$BASE_URL/$fname"
-  echo "  ↓  ${fname}  ←  ${url}"
+  url="$BASE_URL/$remote_path"
+  echo "  ↓  ${local_name}  ←  ${url}"
   download "$url" "$target"
   size=$(stat -c%s "$target" 2>/dev/null || stat -f%z "$target")
   echo "      (${size} bytes)"
