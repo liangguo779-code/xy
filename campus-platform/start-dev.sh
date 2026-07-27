@@ -97,7 +97,13 @@ echo "[4/6] 构建后端单体应用..."
 
 cd "$PROJECT_DIR/backend"
 
-# 4a. 确保 BGE reranker 模型已下载（首次运行 ~280MB + 几秒，后续秒过）
+# 4a. 确保 .env 可用（spring-dotenv 从 jar 工作目录读取）
+if [ -f "$PROJECT_DIR/.env" ] && [ ! -f "$PROJECT_DIR/backend/.env" ]; then
+    cp "$PROJECT_DIR/.env" "$PROJECT_DIR/backend/.env"
+    echo "  ✅  复制 .env 到 backend/"
+fi
+
+# 4b. 确保 BGE reranker 模型已下载（首次运行 ~280MB + 几秒，后续秒过）
 # 默认走 HuggingFace 官方认可的 hf-mirror.com 镜像（大陆可访问）。
 # 如需切回 huggingface.co：export HF_ENDPOINT=https://huggingface.co
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
