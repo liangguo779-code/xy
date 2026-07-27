@@ -63,6 +63,7 @@ public class RagOrchestrator {
             "fallback_done", "正在整理回答...");
 
     private final ChatModel chatModel;
+    private final dev.langchain4j.model.openai.OpenAiStreamingChatModel streamingChatModel;
     private final IntentClassifier intentClassifier;
     private final QueryRewriter queryRewriter;
     private final HybridRetriever retriever;
@@ -155,16 +156,14 @@ public class RagOrchestrator {
                     .score(h.score())
                     .build());
         }
-        sink.accept(new StreamEvent("sources", null, sources));
 
-        String answer = generate(s, sources);
+        // Stream the answer token-by-token BEFORE emitting sources, so the user sees
+        // the typing effect first, then the references appear below.
+        String answer = streamGenerate(s, sources, sink);
         sink.accept(new StreamEvent("stage", "generate_done", STAGE_MESSAGES.get("generate_done")));
 
-        // Push the generated answer as a token event so the SSE stream delivers it to
-        // the client. The orchestrator's generate() is synchronous, so this is one chunk
-        // (not a per-token stream); future migration to StreamingChatModel can switch this
-        // to per-token emission.
-        sink.accept(new StreamEvent("token", null, answer));
+        // Now that the answer is fully streamed, emit the references.
+        sink.accept(new StreamEvent("sources", null, sources));
 
         ChatResponse r = new ChatResponse();
         r.setAnswer(answer);
@@ -215,6 +214,17 @@ public class RagOrchestrator {
     }
 
     private String generate(State s, List<com.campus.ai.chat.dto.ChatResponse.SourceItem> sources) {
+        // Kept as a synchronous fallback for /api/ai/chat (non-streaming) callers.
+        return streamGenerate(s, sources, stage -> { /* ignore events in sync mode */ });
+    }
+
+    /**
+     * Streaming answer generation: pushes per-token SSE events through the sink so the
+     * frontend gets a real typing effect. Falls back to a deterministic no-LLM answer
+     * on failure so the chat never silently returns empty.
+     */
+    private String streamGenerate(State s, List<com.campus.ai.chat.dto.ChatResponse.SourceItem> sources,
+                                  Consumer<StreamEvent> sink) {
         StringBuilder context = new StringBuilder();
         for (var src : sources) {
             context.append("[来源").append(src.getIndex()).append("] 来自《").append(src.getSource()).append("》:\n")
@@ -237,10 +247,35 @@ public class RagOrchestrator {
         String userContent = CONTEXT_TEMPLATE.replace("{context}", context.toString()) +
                 "\n\n学生问题: " + s.question;
         messages.add(UserMessage.from(userContent));
+
+        StringBuilder accumulated = new StringBuilder();
         try {
-            return chatModel.chat(messages).aiMessage().text();
+            // Blocking call that streams partial responses through the handler.
+            // Each onPartialResponse emits one SSE token event so the frontend
+            // can append it to the message bubble in real time.
+            dev.langchain4j.model.chat.request.ChatRequest req =
+                    dev.langchain4j.model.chat.request.ChatRequest.builder()
+                            .messages(messages)
+                            .build();
+            streamingChatModel.doChat(req, new dev.langchain4j.model.chat.response.StreamingChatResponseHandler() {
+                @Override
+                public void onPartialResponse(String partial) {
+                    accumulated.append(partial);
+                    sink.accept(new StreamEvent("token", null, partial));
+                }
+                @Override
+                public void onCompleteResponse(dev.langchain4j.model.chat.response.ChatResponse response) {
+                    // already streamed
+                }
+                @Override
+                public void onError(Throwable error) {
+                    log.error("Streaming LLM error: {}", error.getMessage());
+                }
+            });
+            return accumulated.toString();
         } catch (Exception e) {
-            log.error("LLM generation failed: {}", e.getMessage());
+            log.error("Streaming generation failed: {}", e.getMessage());
+            // Fallback: no-LLM "knowledge digest" answer.
             StringBuilder fb = new StringBuilder("根据知识库检索，以下是相关信息：\n\n");
             for (var src : sources) {
                 String content = src.getContent();
@@ -248,7 +283,10 @@ public class RagOrchestrator {
                 fb.append("**[来源").append(src.getIndex()).append("]** 《").append(src.getSource()).append("》\n")
                         .append(truncated).append("\n\n");
             }
-            return fb.toString();
+            String fallback = fb.toString();
+            // Push the entire fallback as a single token so the client still gets text.
+            sink.accept(new StreamEvent("token", null, fallback));
+            return fallback;
         }
     }
 

@@ -3,6 +3,7 @@ package com.campus.ai.config;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.bgesmallzh.BgeSmallZhEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.scoring.ScoringModel;
 import dev.langchain4j.model.scoring.onnx.OnnxScoringModel;
 import lombok.extern.slf4j.Slf4j;
@@ -55,6 +56,22 @@ public class LangChain4jConfig {
             log.warn("campus.ai.llm.api-key is empty — chat will fail until OPENAI_API_KEY is set");
         }
         return OpenAiChatModel.builder()
+                .baseUrl(l.getBaseUrl())
+                .apiKey(l.getApiKey() == null ? "missing" : l.getApiKey())
+                .modelName(l.getModel())
+                .temperature(l.getTemperature())
+                .timeout(l.getTimeout())
+                .build();
+    }
+
+    /**
+     * Streaming variant of the chat model — the orchestrator uses this for the
+     * "typing" effect (per-token SSE events) instead of waiting for the full answer.
+     */
+    @Bean
+    public OpenAiStreamingChatModel streamingChatModel() {
+        AiProperties.Llm l = props.getLlm();
+        return OpenAiStreamingChatModel.builder()
                 .baseUrl(l.getBaseUrl())
                 .apiKey(l.getApiKey() == null ? "missing" : l.getApiKey())
                 .modelName(l.getModel())
