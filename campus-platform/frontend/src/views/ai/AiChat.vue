@@ -384,6 +384,17 @@ onMounted(async () => {
 
 .message.user .avatar { background: #409eff; color: white; }
 
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #909399;
+  font-size: 13px;
+}
+.thinking-indicator .is-loading {
+  font-size: 16px;
+}
+
 .bubble {
   max-width: 80%;
   padding: 12px 16px;
