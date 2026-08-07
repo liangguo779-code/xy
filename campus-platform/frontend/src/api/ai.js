@@ -20,7 +20,7 @@ export async function chatStream(data, onToken, onSources, onDone, onStage, onSe
   }
 
   const reader = res.body.getReader()
-  const decoder = new TextDecoder()
+  const decoder = new TextDecoder('utf-8')
   let buffer = ''
 
   while (true) {

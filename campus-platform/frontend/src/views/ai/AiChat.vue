@@ -119,9 +119,9 @@ function renderMarkdown(text) {
 function parseSources(sources) {
   if (!sources) return []
   if (typeof sources === 'string') {
-    try { return JSON.parse(sources).map(s => ({ ...s, expanded: false })) } catch { return [] }
+    try { return JSON.parse(sources).map(s => ({ ...s, expanded: true })) } catch { return [] }
   }
-  return sources.map(s => ({ ...s, expanded: false }))
+  return sources.map(s => ({ ...s, expanded: true }))
 }
 
 function scrollToBottom() {
@@ -433,7 +433,7 @@ onMounted(async () => {
 .expand-icon.expanded { transform: rotate(180deg); }
 .source-content { padding: 12px; background: #fff; border-top: 1px solid #ebeef5; }
 .content-label { font-size: 12px; color: #909399; margin-bottom: 8px; font-weight: 500; }
-.content-text { font-size: 13px; color: #606266; line-height: 1.8; white-space: pre-wrap; background: #f9f9f9; padding: 12px; border-radius: 6px; max-height: 300px; overflow-y: auto; }
+.content-text { font-size: 13px; color: #606266; line-height: 1.8; white-space: pre-wrap; background: #f9f9f9; padding: 12px; border-radius: 6px; max-height: 500px; overflow-y: auto; }
 
 .input-area { padding: 16px; border-top: 1px solid #ebeef5; }
 

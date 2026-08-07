@@ -158,7 +158,11 @@ fi
 
 echo ""
 echo "  启动 campus-app (端口 9000)..."
-nohup java -jar campus-app/target/campus-app-1.0.0-SNAPSHOT.jar --server.address=0.0.0.0 > ../logs/campus-app.log 2>&1 &
+# -Dfile.encoding=UTF-8 是必需的：本机 JDK 17 默认 charset 是 GBK。
+# langchain4j 的 DefaultServerSentEventParser 用 new InputStreamReader(body) 读取
+# LLM 的 SSE 流（没传 charset），会用平台默认编码解码 UTF-8 字节，导致中文
+# token 变成乱码（"你好" → "浣犲ソ"）。JDK 18+ 默认就是 UTF-8，此参数可去掉。
+nohup java -Dfile.encoding=UTF-8 -jar campus-app/target/campus-app-1.0.0-SNAPSHOT.jar --server.address=0.0.0.0 > ../logs/campus-app.log 2>&1 &
 APP_PID=$!
 echo "✅ campus-app 进程已启动 (PID: $APP_PID)"
 

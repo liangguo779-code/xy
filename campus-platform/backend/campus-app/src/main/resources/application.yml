@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: campus-app
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/campus?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root

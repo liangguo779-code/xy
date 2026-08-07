@@ -58,7 +58,13 @@ public class AiChatController {
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chatStream(@Valid @RequestBody ChatRequest request) {
+    public SseEmitter chatStream(@Valid @RequestBody ChatRequest request,
+                                  jakarta.servlet.http.HttpServletResponse response) {
+        // Force UTF-8 encoding for SSE response. Spring's SseEmitter ignores the
+        // charset parameter on the produces attribute and defaults to ISO-8859-1,
+        // which corrupts multi-byte UTF-8 characters.
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType("text/event-stream;charset=UTF-8");
         Long userId = safeUserId();
         Long sessionId = request.getSessionId();
         if (sessionId == null) {
@@ -76,55 +82,43 @@ public class AiChatController {
         SseEmitter emitter = new SseEmitter(120_000L);
         Long finalSessionId = sessionId;
         sseExecutor.execute(() -> {
-            StringBuilder answerBuilder = new StringBuilder();
+            java.util.concurrent.atomic.AtomicReference<String> answerRef = new java.util.concurrent.atomic.AtomicReference<>("");
             java.util.concurrent.atomic.AtomicReference<String> sourcesJsonRef = new java.util.concurrent.atomic.AtomicReference<>();
             try {
-                emitter.send(SseEmitter.event().data(
-                        String.format("{\"type\":\"session\",\"sessionId\":%d}", finalSessionId)));
+                sendJson(emitter, Map.of("type", "session", "sessionId", finalSessionId));
 
-                ragOrchestrator.run(request, event -> {
+                ChatResponse resp = ragOrchestrator.run(request, event -> {
                     try {
                         switch (event.type()) {
-                            case "stage" -> emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(
-                                    Map.of("type", "stage", "stage", event.stage(), "message", event.payload()))));
+                            case "stage" -> sendJson(emitter, Map.of("type", "stage", "stage", event.stage(), "message", event.payload()));
                             case "sources" -> {
-                                String s = objectMapper.writeValueAsString(event.payload());
-                                sourcesJsonRef.set(s);
-                                emitter.send(SseEmitter.event().data(
-                                        String.format("{\"type\":\"sources\",\"sources\":%s}", s)));
+                                sourcesJsonRef.set(objectMapper.writeValueAsString(event.payload()));
+                                sendJson(emitter, Map.of("type", "sources", "sources", event.payload()));
                             }
-                            case "token" -> {
-                                String content = (String) event.payload();
-                                emitter.send(SseEmitter.event().data(
-                                        String.format("{\"type\":\"token\",\"content\":%s}",
-                                                objectMapper.writeValueAsString(content))));
-                            }
-                            case "done" -> emitter.send(SseEmitter.event().data("{\"type\":\"done\"}"));
+                            case "token" -> sendJson(emitter, Map.of("type", "token", "content", event.payload()));
+                            case "done" -> sendJson(emitter, Map.of("type", "done"));
                         }
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }
                 });
 
-                // Run the orchestrator once more synchronously to capture the final answer
-                // text for persistence. The streaming run above already pushed the events
-                // to the client; this one is for the DB row only.
-                ChatResponse finalResp = ragOrchestrator.run(request);
-                answerBuilder.append(finalResp.getAnswer() == null ? "" : finalResp.getAnswer());
-                if (finalResp.getSources() != null && sourcesJsonRef.get() == null) {
-                    sourcesJsonRef.set(objectMapper.writeValueAsString(finalResp.getSources()));
+                // The orchestrator's return value already contains the fully streamed answer
+                // (streamGenerate now blocks until completion), so no need for a second run.
+                answerRef.set(resp.getAnswer() == null ? "" : resp.getAnswer());
+                if (resp.getSources() != null && sourcesJsonRef.get() == null) {
+                    sourcesJsonRef.set(objectMapper.writeValueAsString(resp.getSources()));
                 }
-                if (answerBuilder.length() > 0) {
+                if (!answerRef.get().isEmpty()) {
                     historyService.saveMessage(finalSessionId, "assistant",
-                            answerBuilder.toString(), sourcesJsonRef.get());
+                            answerRef.get(), sourcesJsonRef.get());
                 }
                 emitter.complete();
             } catch (Exception e) {
                 log.error("SSE chat failed: sessionId={}, error={}", finalSessionId, e.getMessage());
                 try {
-                    emitter.send(SseEmitter.event().data(
-                            "{\"type\":\"token\",\"content\":\"抱歉，暂时无法回答您的问题，请稍后重试。\"}"));
-                    emitter.send(SseEmitter.event().data("{\"type\":\"done\"}"));
+                    sendJson(emitter, Map.of("type", "token", "content", "抱歉，暂时无法回答您的问题，请稍后重试。"));
+                    sendJson(emitter, Map.of("type", "done"));
                     emitter.complete();
                 } catch (Exception ignored) {
                     emitter.completeWithError(e);
@@ -201,5 +195,14 @@ public class AiChatController {
     @lombok.Data
     public static class UpdateTitleReq {
         private String title;
+    }
+
+    /**
+     * Send an SSE event with UTF-8 encoded JSON payload.
+     * The response is forced to UTF-8 in the controller method, so SseEmitter
+     * will write the String using UTF-8 encoding.
+     */
+    private void sendJson(SseEmitter emitter, Object payload) throws Exception {
+        emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(payload)));
     }
 }

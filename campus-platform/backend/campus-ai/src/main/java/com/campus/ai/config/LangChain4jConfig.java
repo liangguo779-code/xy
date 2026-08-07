@@ -67,6 +67,11 @@ public class LangChain4jConfig {
     /**
      * Streaming variant of the chat model — the orchestrator uses this for the
      * "typing" effect (per-token SSE events) instead of waiting for the full answer.
+     *
+     * <p>The {@code httpClientBuilder(...)} forces a UTF-8 SSE parser: on
+     * JDK 17 + zh_CN Windows the JVM default charset is GBK, and langchain4j's
+     * built-in parser uses {@code Charset.defaultCharset()} on the raw stream,
+     * corrupting Chinese tokens. See {@link Utf8JdkHttpClient} for details.
      */
     @Bean
     public OpenAiStreamingChatModel streamingChatModel() {
@@ -77,6 +82,7 @@ public class LangChain4jConfig {
                 .modelName(l.getModel())
                 .temperature(l.getTemperature())
                 .timeout(l.getTimeout())
+                .httpClientBuilder(new Utf8JdkHttpClientBuilder())
                 .build();
     }
 

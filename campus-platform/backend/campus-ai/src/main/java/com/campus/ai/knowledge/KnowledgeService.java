@@ -206,6 +206,7 @@ public class KnowledgeService {
             //    afterward, the data is lost — but this is the only way to guarantee
             //    no stale chunks remain when chunk count or indices change.
             vectorStore.removeBySource(name);
+            bm25.removeBySource(name);
             // 2. Add new chunks.
             vectorStore.addAll(chunks);
             bm25.addAll(chunks);

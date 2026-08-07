@@ -35,6 +35,8 @@ public class VectorStoreFacade {
                     .properties("chunk_index", p -> p.integer(i -> i))
                     .properties("section_title", p -> p.text(t -> t))
                     .properties("section_path", p -> p.text(t -> t))
+                    .properties("parent_index", p -> p.integer(i -> i))
+                    .properties("is_parent", p -> p.boolean_(b -> b))
                     .properties("embedding", p -> p.denseVector(d -> d.dims(dim).index(true).similarity("cosine")))
             ));
         } catch (Exception e) { log.error("Ensure index failed: {}", e.getMessage(), e); }
@@ -52,12 +54,20 @@ public class VectorStoreFacade {
                 BulkRequest.Builder br = new BulkRequest.Builder();
                 for (ChunkDto c : batch) {
                     if (c.getContent() == null || c.getContent().isBlank()) continue;
-                    float[] vec = embed(c.getContent());
+                    // Enrich text with section path for better embedding quality.
+                    // The section path provides hierarchical context (e.g. "第一章 / 第十条")
+                    // that helps the embedding model distinguish between similar clauses.
+                    String enrichedText = c.getSectionPath() != null && !c.getSectionPath().isEmpty()
+                            ? c.getSectionPath() + "\n" + c.getContent()
+                            : c.getContent();
+                    float[] vec = embed(enrichedText);
                     Map<String, Object> doc = new LinkedHashMap<>();
                     doc.put("text", c.getContent()); doc.put("source", c.getSource());
                     doc.put("chunk_index", c.getChunkIndex());
                     doc.put("section_title", c.getSectionTitle() == null ? "" : c.getSectionTitle());
                     doc.put("section_path", c.getSectionPath() == null ? "" : c.getSectionPath());
+                    doc.put("parent_index", c.getParentIndex());
+                    doc.put("is_parent", c.isParent());
                     doc.put("embedding", vec);
                     br.operations(op -> op.index(idx -> idx.index(indexName()).id(c.getSource() + "_" + c.getChunkIndex()).document(doc)));
                 }
@@ -89,26 +99,81 @@ public class VectorStoreFacade {
         catch (Exception e) { log.warn("removeBySource failed: {}", e.getMessage()); }
     }
 
+    /**
+     * Search for chunks matching the query.
+     * Filters out parent chunks (is_parent=true) — only child chunks are used for retrieval.
+     * The caller (HybridRetriever.resolveParents) expands matched children to their parent
+     * chunks for generation context.
+     */
     public List<Hit> search(String query, int topK, Set<String> disabledSources) {
         try {
             float[] qVec = embed(query);
             List<Float> qVecList = new ArrayList<>(qVec.length);
             for (float f : qVec) qVecList.add(f);
-            KnnQuery knn = new KnnQuery.Builder().field("embedding").k(topK).numCandidates(topK * 2).queryVector(qVecList).build();
-            SearchRequest.Builder sb = new SearchRequest.Builder().index(indexName()).size(topK).knn(knn);
-            sb.source(s -> s.filter(f -> f.includes("text","source","chunk_index","section_title","section_path")));
+            // Fetch more candidates to account for parent-chunk filtering.
+            int fetchSize = topK * 3;
+            KnnQuery knn = new KnnQuery.Builder().field("embedding").k(fetchSize).numCandidates(fetchSize * 2).queryVector(qVecList).build();
+            SearchRequest.Builder sb = new SearchRequest.Builder().index(indexName()).size(fetchSize).knn(knn);
+            sb.source(s -> s.filter(f -> f.includes("text","source","chunk_index","section_title","section_path","parent_index","is_parent")));
             SearchResponse<Map> resp = esClient.search(sb.build(), Map.class);
             List<Hit> out = new ArrayList<>();
             for (co.elastic.clients.elasticsearch.core.search.Hit<Map> h : resp.hits().hits()) {
                 Map src = h.source(); if (src == null) continue;
-                out.add(new Hit((String)src.get("source"), src.containsKey("chunk_index")?((Number)src.get("chunk_index")).intValue():0, (String)src.get("text"), h.score()));
+                int parentIndex = src.containsKey("parent_index") ? ((Number)src.get("parent_index")).intValue() : -1;
+                boolean isParent = src.containsKey("is_parent") ? (Boolean)src.get("is_parent") : false;
+                String sectionPath = src.containsKey("section_path") ? (String)src.get("section_path") : "";
+                // Skip parent chunks — only use child chunks for precise retrieval.
+                if (isParent) continue;
+                out.add(new Hit(
+                        (String)src.get("source"),
+                        src.containsKey("chunk_index") ? ((Number)src.get("chunk_index")).intValue() : 0,
+                        (String)src.get("text"),
+                        h.score(),
+                        parentIndex,
+                        isParent,
+                        sectionPath
+                ));
+                if (out.size() >= topK) break;
             }
             if (disabledSources != null && !disabledSources.isEmpty()) out.removeIf(hit -> disabledSources.contains(hit.source()));
             return out;
         } catch (Exception e) { log.warn("search failed: {}", e.getMessage()); return List.of(); }
     }
 
+    /**
+     * Get a specific chunk by source and chunkIndex.
+     * Used to fetch parent chunks when a child is matched.
+     */
+    public Hit getByIndex(String source, int chunkIndex) {
+        try {
+            String id = source + "_" + chunkIndex;
+            GetResponse<Map> resp = esClient.get(g -> g.index(indexName()).id(id), Map.class);
+            if (!resp.found()) return null;
+            Map src = resp.source();
+            if (src == null) return null;
+            int parentIndex = src.containsKey("parent_index") ? ((Number)src.get("parent_index")).intValue() : -1;
+            boolean isParent = src.containsKey("is_parent") ? (Boolean)src.get("is_parent") : false;
+            String sectionPath = src.containsKey("section_path") ? (String)src.get("section_path") : "";
+            return new Hit(
+                    (String)src.get("source"),
+                    src.containsKey("chunk_index") ? ((Number)src.get("chunk_index")).intValue() : 0,
+                    (String)src.get("text"),
+                    0.0,
+                    parentIndex,
+                    isParent,
+                    sectionPath
+            );
+        } catch (Exception e) {
+            log.warn("getByIndex failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public int count() { try { return (int) esClient.count(c -> c.index(indexName())).count(); } catch (Exception e) { return -1; } }
 
-    public record Hit(String source, int chunkIndex, String content, double score) {}
+    public record Hit(String source, int chunkIndex, String content, double score, int parentIndex, boolean isParent, String sectionPath) {
+        public Hit(String source, int chunkIndex, String content, double score, int parentIndex, boolean isParent) {
+            this(source, chunkIndex, content, score, parentIndex, isParent, "");
+        }
+    }
 }

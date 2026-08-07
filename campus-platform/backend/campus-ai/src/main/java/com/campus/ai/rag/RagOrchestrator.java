@@ -28,7 +28,7 @@ public class RagOrchestrator {
 
     private static final int MAX_RETRIES = 1;
     private static final int HISTORY_WINDOW = 10;
-    private static final int RERANK_TOPK = 5;
+    private static final int RERANK_TOPK = 10;  // Increased from 5 to preserve BM25 matches
 
     private static final String SYSTEM_PROMPT = """
             你是校园事务咨询助手。请根据下方"参考信息"回答学生问题，回答中用 [来源X] 标注引用。
@@ -107,6 +107,10 @@ public class RagOrchestrator {
         sink.accept(new StreamEvent("stage", "rewrite_done", STAGE_MESSAGES.get("rewrite_done")));
 
         s.searchResults = retriever.searchMulti(s.queries, props.getVector().getRetrieveTopk());
+        log.info("检索完成: queries={}, 结果数={}, 首条source={}, 首条score={}",
+                s.queries, s.searchResults.size(),
+                s.searchResults.isEmpty() ? "none" : s.searchResults.get(0).source(),
+                s.searchResults.isEmpty() ? 0 : s.searchResults.get(0).score());
         s.bestScore = s.searchResults.isEmpty() ? 999d : s.searchResults.get(0).score();
         sink.accept(new StreamEvent("stage", "retrieve_done", STAGE_MESSAGES.get("retrieve_done")));
 
@@ -132,7 +136,8 @@ public class RagOrchestrator {
                 if (existing == null || h.score() < existing.score()) merged.put(key, h);
             }
             s.searchResults = new ArrayList<>(merged.values());
-            s.searchResults.sort(Comparator.comparingDouble(HybridRetriever.Hit::score));
+            // Don't re-sort here — the reranker already determined the best order.
+            // Just trim to topK.
             if (s.searchResults.size() > props.getVector().getRetrieveTopk()) {
                 s.searchResults = s.searchResults.subList(0, props.getVector().getRetrieveTopk());
             }
@@ -153,9 +158,13 @@ public class RagOrchestrator {
         int limit = Math.min(5, s.searchResults.size());
         for (int i = 0; i < limit; i++) {
             HybridRetriever.Hit h = s.searchResults.get(i);
+            // Use sectionPath if available, otherwise fallback to source filename
+            String displaySource = h.sectionPath() != null && !h.sectionPath().isEmpty()
+                    ? h.sectionPath()
+                    : h.source();
             sources.add(com.campus.ai.chat.dto.ChatResponse.SourceItem.builder()
                     .index(i + 1)
-                    .source(h.source())
+                    .source(displaySource)
                     .chunkIndex(h.chunkIndex())
                     .content(h.content())
                     .score(h.score())
@@ -179,17 +188,74 @@ public class RagOrchestrator {
 
     private List<HybridRetriever.Hit> rerank(String question, List<HybridRetriever.Hit> hits, int topK) {
         if (hits.isEmpty()) return hits;
+        // Heuristic reranker: combines BM25 keyword match score with cross-encoder score.
+        // The BGE reranker often misranks Chinese policy documents, so we weight it less
+        // and prioritize exact keyword matches.
         List<dev.langchain4j.data.segment.TextSegment> segments = new ArrayList<>(hits.size());
         for (HybridRetriever.Hit h : hits) segments.add(dev.langchain4j.data.segment.TextSegment.from(h.content()));
-        List<Double> scores = scoringModel.scoreAll(segments, question).content();
+        List<Double> rerankerScores = scoringModel.scoreAll(segments, question).content();
+
+        // Extract query keywords using a simple heuristic (Chinese + important terms).
+        Set<String> queryKeywords = extractKeywords(question);
+
         List<Ranked> ranked = new ArrayList<>();
+        log.info("Query keywords: {}", queryKeywords);
         for (int i = 0; i < hits.size(); i++) {
-            ranked.add(new Ranked(hits.get(i), scores.get(i)));
+            HybridRetriever.Hit h = hits.get(i);
+            double rerankScore = rerankerScores.get(i);
+            // Keyword match score: ratio of query keywords found in chunk.
+            double keywordScore = computeKeywordScore(h.content(), queryKeywords);
+            // Combined score: keyword match dominates (90%) because BGE reranker
+            // is unreliable for Chinese policy docs. Lower is better.
+            // Negate keyword score so higher match = lower combined score.
+            double combined = -keywordScore * 10.0 + rerankScore * 0.1;
+            ranked.add(new Ranked(h, combined));
+            log.info("  chunk={} kw={} rerank={} combined={}",
+                    h.chunkIndex(), String.format("%.3f", keywordScore),
+                    String.format("%.3f", rerankScore), String.format("%.3f", combined));
         }
         ranked.sort(Comparator.comparingDouble(Ranked::score));
+        log.info("Reranker (heuristic) top-5 for '{}': {}", question,
+                ranked.stream().limit(5)
+                        .map(r -> "idx=" + r.hit().chunkIndex() + " kw=" + String.format("%.2f", computeKeywordScore(r.hit().content(), queryKeywords)) + " re=" + String.format("%.2f", rerankerScores.get(ranked.indexOf(r))))
+                        .toList());
         List<HybridRetriever.Hit> out = new ArrayList<>();
         for (int i = 0; i < Math.min(topK, ranked.size()); i++) out.add(ranked.get(i).hit);
         return out;
+    }
+
+    /**
+     * Extract important keywords from a Chinese query.
+     * Uses sliding windows of 2-4 characters to catch Chinese compound words like
+     * "校园卡", "补办", "丢失" etc.
+     */
+    private Set<String> extractKeywords(String query) {
+        Set<String> keywords = new HashSet<>();
+        // Remove common Chinese question words
+        String cleaned = query.replaceAll("怎么办理|怎么办|怎么|如何|怎样|流程|请问|申请|需要|是否|可以|有什么|多少|哪些|一个|这个|那个|什么|哪些|哪里|为什么", " ");
+        // Extract Chinese character runs
+        String chineseOnly = cleaned.replaceAll("[^\\u4e00-\\u9fff]", " ").trim();
+        // Generate n-grams (2, 3, 4 chars) for Chinese compound word detection
+        for (int n = 2; n <= 4; n++) {
+            for (int i = 0; i <= chineseOnly.length() - n; i++) {
+                String gram = chineseOnly.substring(i, i + n).trim();
+                if (gram.length() == n) keywords.add(gram);
+            }
+        }
+        return keywords;
+    }
+
+    /**
+     * Compute the fraction of query keywords found in the chunk content.
+     * Returns 0.0-1.0 (higher = more keyword matches).
+     */
+    private double computeKeywordScore(String content, Set<String> keywords) {
+        if (keywords.isEmpty() || content == null) return 0.0;
+        int matches = 0;
+        for (String kw : keywords) {
+            if (content.contains(kw)) matches++;
+        }
+        return (double) matches / keywords.size();
     }
 
     private String chatReply(String question) {
@@ -227,6 +293,12 @@ public class RagOrchestrator {
      * Streaming answer generation: pushes per-token SSE events through the sink so the
      * frontend gets a real typing effect. Falls back to a deterministic no-LLM answer
      * on failure so the chat never silently returns empty.
+     *
+     * <p>LangChain4j {@code OpenAiStreamingChatModel.doChat()} is non-blocking — it returns
+     * immediately and invokes callbacks on a background thread. We use a
+     * {@link java.util.concurrent.CompletableFuture} to block until the stream completes
+     * so that the returned answer text is fully accumulated before we emit the sources
+     * event (otherwise the client may render sources before the answer tokens arrive).
      */
     private String streamGenerate(State s, List<com.campus.ai.chat.dto.ChatResponse.SourceItem> sources,
                                   Consumer<StreamEvent> sink) {
@@ -255,14 +327,10 @@ public class RagOrchestrator {
 
         StringBuilder accumulated = new StringBuilder();
         try {
-            // Blocking call that streams partial responses through the handler.
-            // Each onPartialResponse emits one SSE token event so the frontend
-            // can append it to the message bubble in real time.
-            dev.langchain4j.model.chat.request.ChatRequest req =
-                    dev.langchain4j.model.chat.request.ChatRequest.builder()
-                            .messages(messages)
-                            .build();
-            streamingChatModel.doChat(req, new dev.langchain4j.model.chat.response.StreamingChatResponseHandler() {
+            // Use the simple chat(List<ChatMessage>, handler) API to avoid
+            // ClassCastException with DefaultChatRequestParameters vs OpenAiChatRequestParameters.
+            java.util.concurrent.CompletableFuture<Void> future = new java.util.concurrent.CompletableFuture<>();
+            streamingChatModel.chat(messages, new dev.langchain4j.model.chat.response.StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String partial) {
                     accumulated.append(partial);
@@ -270,29 +338,35 @@ public class RagOrchestrator {
                 }
                 @Override
                 public void onCompleteResponse(dev.langchain4j.model.chat.response.ChatResponse response) {
-                    // already streamed
+                    future.complete(null);
                 }
                 @Override
                 public void onError(Throwable error) {
                     log.error("Streaming LLM error: {}", error.getMessage());
+                    future.completeExceptionally(error);
                 }
             });
-            return accumulated.toString();
+            // Block until streaming finishes (max 90 s to avoid hanging the SSE thread).
+            future.get(90, java.util.concurrent.TimeUnit.SECONDS);
+            if (accumulated.length() > 0) {
+                return accumulated.toString();
+            }
+            // If the LLM returned no content (empty response), fall through to fallback.
+            log.warn("Streaming LLM returned empty response, using fallback");
         } catch (Exception e) {
             log.error("Streaming generation failed: {}", e.getMessage());
-            // Fallback: no-LLM "knowledge digest" answer.
-            StringBuilder fb = new StringBuilder("根据知识库检索，以下是相关信息：\n\n");
-            for (var src : sources) {
-                String content = src.getContent();
-                String truncated = content.length() > 300 ? content.substring(0, 300) + "..." : content;
-                fb.append("**[来源").append(src.getIndex()).append("]** 《").append(src.getSource()).append("》\n")
-                        .append(truncated).append("\n\n");
-            }
-            String fallback = fb.toString();
-            // Push the entire fallback as a single token so the client still gets text.
-            sink.accept(new StreamEvent("token", null, fallback));
-            return fallback;
         }
+        // Fallback: no-LLM "knowledge digest" answer.
+        StringBuilder fb = new StringBuilder("根据知识库检索，以下是相关信息：\n\n");
+        for (var src : sources) {
+            String content = src.getContent();
+            String truncated = content.length() > 300 ? content.substring(0, 300) + "..." : content;
+            fb.append("**[来源").append(src.getIndex()).append("]** 《").append(src.getSource()).append("》\n")
+                    .append(truncated).append("\n\n");
+        }
+        String fallback = fb.toString();
+        sink.accept(new StreamEvent("token", null, fallback));
+        return fallback;
     }
 
     private record Ranked(HybridRetriever.Hit hit, double score) {}

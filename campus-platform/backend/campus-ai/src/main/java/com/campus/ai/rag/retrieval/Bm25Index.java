@@ -64,7 +64,7 @@ public class Bm25Index {
             df = new HashMap<>();
             for (ChunkDto c : chunks) {
                 List<String> tokens = tokenize(c.getContent());
-                docs.add(new Doc(c.getSource(), c.getChunkIndex(), c.getContent()));
+                docs.add(new Doc(c.getSource(), c.getChunkIndex(), c.getContent(), c.isParent()));
                 docTokens.add(tokens);
                 for (String t : new HashSet<>(tokens)) {
                     df.merge(t, 1, Integer::sum);
@@ -93,6 +93,7 @@ public class Bm25Index {
                     .source(d.source)
                     .chunkIndex(d.chunkIndex)
                     .content(d.content)
+                    .isParent(d.isParent)
                     .build());
         }
         all.addAll(added);
@@ -134,10 +135,11 @@ public class Bm25Index {
             List<String> qTokens = tokenize(query);
             if (qTokens.isEmpty()) return List.of();
 
-            // Score each doc.
+            // Score each doc, filtering out parent chunks (only use children for retrieval).
             List<Scored> scored = new ArrayList<>();
             for (int i = 0; i < docs.size(); i++) {
                 Doc d = docs.get(i);
+                if (d.isParent) continue;
                 if (disabledSources != null && disabledSources.contains(d.source)) continue;
                 double s = bm25Score(qTokens, docTokens.get(i));
                 if (s > 0) scored.add(new Scored(i, s));
@@ -201,7 +203,8 @@ public class Bm25Index {
                 Doc d = docs.get(i);
                 sb.append("{\"source\":\"").append(escape(d.source))
                         .append("\",\"chunkIndex\":").append(d.chunkIndex)
-                        .append(",\"content\":\"").append(escape(d.content)).append("\"}");
+                        .append(",\"content\":\"").append(escape(d.content))
+                        .append("\",\"isParent\":").append(d.isParent).append("}");
             }
             sb.append("]}");
             Files.writeString(p, sb.toString(), StandardCharsets.UTF_8);
@@ -211,14 +214,33 @@ public class Bm25Index {
     }
 
     private void load(Path p) throws IOException {
-        // Minimal hand-rolled JSON parser — schema is fixed (no escape complexity beyond quotes).
+        // Use Jackson ObjectMapper for robust JSON parsing instead of regex,
+        // which fails when content contains escaped quotes or special characters.
         String s = Files.readString(p, StandardCharsets.UTF_8);
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         List<Doc> nd = new ArrayList<>();
-        // Capture every "source": "...", "chunkIndex": N, "content": "..." object.
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                "\\{\"source\":\"(.*?)\",\"chunkIndex\":(\\d+),\"content\":\"(.*?)\"\\}").matcher(s);
-        while (m.find()) {
-            nd.add(new Doc(unescape(m.group(1)), Integer.parseInt(m.group(2)), unescape(m.group(3))));
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(s);
+            com.fasterxml.jackson.databind.JsonNode docsNode = root.get("docs");
+            if (docsNode != null && docsNode.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode node : docsNode) {
+                    String source = node.has("source") ? node.get("source").asText() : "";
+                    int chunkIndex = node.has("chunkIndex") ? node.get("chunkIndex").asInt() : 0;
+                    String content = node.has("content") ? node.get("content").asText() : "";
+                    boolean isParent = node.has("isParent") && node.get("isParent").asBoolean();
+                    if (!content.isEmpty()) {
+                        nd.add(new Doc(source, chunkIndex, content, isParent));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Jackson parse failed, falling back to regex: {}", e.getMessage());
+            // Fallback to regex for backward compatibility.
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "\\{\"source\":\"(.*?)\",\"chunkIndex\":(\\d+),\"content\":\"(.*?)\"\\}").matcher(s);
+            while (m.find()) {
+                nd.add(new Doc(unescape(m.group(1)), Integer.parseInt(m.group(2)), unescape(m.group(3)), false));
+            }
         }
         docs = nd;
         docTokens = new ArrayList<>(docs.size());
@@ -235,14 +257,22 @@ public class Bm25Index {
     }
 
     private static String escape(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private static String unescape(String s) {
-        return s.replace("\\\"", "\"").replace("\\\\", "\\");
+        return s.replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\");
     }
 
     public record Hit(String source, int chunkIndex, String content, double score) {}
-    private record Doc(String source, int chunkIndex, String content) {}
+    private record Doc(String source, int chunkIndex, String content, boolean isParent) {}
     private record Scored(int idx, double score) {}
 }

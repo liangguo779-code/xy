@@ -39,6 +39,12 @@ public class QueryRewriter {
 
     public List<String> rewrite(String question, List<ChatRequest.HistoryItem> history) {
         if (question == null || question.isBlank()) return List.of();
+        // For short, well-formed questions (< 30 chars), skip rewriting entirely.
+        // The LLM rewrite often dilutes precise queries like "休学怎么办理" by adding
+        // irrelevant expansion words that pull in noisy BM25 results.
+        if (question.length() <= 30) {
+            return List.of(question);
+        }
         try {
             String userContent = "Q: " + question;
             if (history != null && !history.isEmpty()) {
