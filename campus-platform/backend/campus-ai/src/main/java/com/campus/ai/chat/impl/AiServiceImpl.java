@@ -14,26 +14,23 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 
 /**
- * In-process LangChain4j implementation of the AI service. The previous build proxied to
- * a Python service; that path is removed.
+ * AI 服务实现：提供知识库管理（列表、上传、重建、删除、启停）等后台管理能力。
+ *
+ * <p>对话功能由 {@link RagOrchestrator} 处理，本类只负责知识库的 CRUD 操作。
+ *
+ * <p>如果没有这个文件：
+ * <ul>
+ *   <li>管理员无法上传、删除、重建知识库文档</li>
+ *   <li>知识库的启停（按文件禁用/启用）功能不可用</li>
+ *   <li>后台管理页面的知识库管理模块将无法正常工作</li>
+ * </ul>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiServiceImpl implements AiService {
 
-    private final RagOrchestrator ragOrchestrator;
     private final KnowledgeService knowledgeService;
-
-    @Override
-    public ChatResponse chat(ChatRequest request) {
-        try {
-            return ragOrchestrator.run(request);
-        } catch (Exception e) {
-            log.error("AI chat failed", e);
-            throw new BusinessException("AI 服务暂时不可用，请稍后重试");
-        }
-    }
 
     @Override
     public Map<String, Object> getKnowledgeList() {

@@ -49,6 +49,13 @@
             <artifactId>langchain4j-onnx-scoring</artifactId>
         </dependency>
 
+        <!-- Elasticsearch embedding store — wraps the ES Java Client for vector
+             search via LangChain4j's EmbeddingStore<TextSegment> interface. -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-elasticsearch</artifactId>
+        </dependency>
+
         <!-- Document parsing for knowledge ingestion is done directly with
              Apache PDFBox and Apache POI (see com.campus.ai.pipeline.DocumentConverter);
              no LangChain4j loader is required. -->

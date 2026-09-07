@@ -1,8 +1,8 @@
 package com.campus.ai.chat;
 
 import com.campus.ai.config.AiProperties;
-import com.campus.ai.rag.retrieval.Bm25Index;
-import com.campus.ai.rag.retrieval.VectorStoreFacade;
+import com.campus.ai.retrieval.Bm25Index;
+import com.campus.ai.retrieval.VectorStoreFacade;
 import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,8 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Lightweight health endpoint that mirrors the previous Python service's {@code /health}.
- * Reports the configured LLM, vector store, embedder, and BM25 index size.
+ * 轻量级健康检查端点，对应之前 Python 服务的 {@code /health}。
+ * 报告当前配置的 LLM、向量存储、Embedding 模型和 BM25 索引大小。
  */
 @RestController
 @RequestMapping("/api/ai")

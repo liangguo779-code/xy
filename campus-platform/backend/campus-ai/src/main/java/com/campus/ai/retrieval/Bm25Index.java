@@ -1,4 +1,4 @@
-package com.campus.ai.rag.retrieval;
+package com.campus.ai.retrieval;
 
 import com.campus.ai.knowledge.model.ChunkDto;
 import com.huaban.analysis.jieba.JiebaSegmenter;
@@ -15,11 +15,17 @@ import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * In-memory BM25 index over chunked knowledge documents, with a jieba tokenizer for
- * Chinese-friendly tokenization. This is a port of the Python service's
- * {@code rag.bm25.BM25Okapi} usage. Persistence is best-effort: a JSON snapshot of the
- * tokenized corpus is written under {@code campus.ai.home/vectors/bm25.json} and reloaded
- * on startup.
+ * 基于内存的 BM25 索引，使用 jieba 分词器实现中文友好的关键词检索。
+ *
+ * <p>持久化方式：将分词后的语料以 JSON 快照写入 {@code campus.ai.home/vectors/bm25.json}，
+ * 启动时自动加载。
+ *
+ * <p>如果没有这个文件：
+ * <ul>
+ *   <li>HybridRetriever 的 BM25 通道不可用，只剩纯向量检索</li>
+ *   <li>中文政策文档中的精确关键词（如"第十条""学业警告"）无法被精确匹配</li>
+ *   <li>每次重启都需要从 Elasticsearch 重建索引，增加冷启动时间</li>
+ * </ul>
  */
 @Slf4j
 @Component
@@ -52,10 +58,10 @@ public class Bm25Index {
                 log.warn("Failed to load BM25 snapshot, will rebuild from vector store: {}", e.getMessage());
             }
         }
-        // No snapshot yet: leave empty. The KnowledgeService rebuild flow will populate.
+        // 快照文件不存在，先留空。KnowledgeService 的 rebuild 流程会填充数据。
     }
 
-    /** Replace the entire index with the given chunks. */
+    /** 用给定的分块列表替换整个索引。 */
     public void replaceAll(List<ChunkDto> chunks) {
         lock.writeLock().lock();
         try {
@@ -80,8 +86,7 @@ public class Bm25Index {
     }
 
     public void addAll(List<ChunkDto> chunks) {
-        // Rebuild from scratch — small corpus, deterministic and simple. The Python service
-        // also rebuilds the full index on every add.
+        // 从头重建 —— 语料规模小，确定性且简单。之前的 Python 服务也是每次添加都重建全量索引。
         replaceAll(currentChunksPlus(chunks));
     }
 
@@ -115,7 +120,7 @@ public class Bm25Index {
             docTokens = nt;
             totalDocs = docs.size();
             avgDocLen = totalDocs == 0 ? 0 : docTokens.stream().mapToInt(List::size).average().orElse(0);
-            // Recompute df.
+            // 重新计算文档频率。
             df = new HashMap<>();
             for (List<String> t : docTokens) {
                 for (String term : new HashSet<>(t)) {
@@ -135,7 +140,7 @@ public class Bm25Index {
             List<String> qTokens = tokenize(query);
             if (qTokens.isEmpty()) return List.of();
 
-            // Score each doc, filtering out parent chunks (only use children for retrieval).
+            // 对每个文档评分，过滤掉父分块（只用子分块做检索）。
             List<Scored> scored = new ArrayList<>();
             for (int i = 0; i < docs.size(); i++) {
                 Doc d = docs.get(i);
@@ -179,7 +184,7 @@ public class Bm25Index {
 
     private List<String> tokenize(String text) {
         if (text == null || text.isEmpty()) return List.of();
-        // jieba's process returns Iterable<SegToken> — extract the .word field.
+        // jieba 的 process 返回 Iterable<SegToken> —— 提取 .word 字段。
         List<String> out = new ArrayList<>();
         for (com.huaban.analysis.jieba.SegToken t : segmenter.process(text, JiebaSegmenter.SegMode.SEARCH)) {
             String s = t.word == null ? "" : t.word.trim().toLowerCase(Locale.ROOT);
@@ -214,8 +219,8 @@ public class Bm25Index {
     }
 
     private void load(Path p) throws IOException {
-        // Use Jackson ObjectMapper for robust JSON parsing instead of regex,
-        // which fails when content contains escaped quotes or special characters.
+        // 使用 Jackson ObjectMapper 解析 JSON，比正则更健壮 ——
+        // 正则在内容包含转义引号或特殊字符时会失败。
         String s = Files.readString(p, StandardCharsets.UTF_8);
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         List<Doc> nd = new ArrayList<>();
@@ -235,7 +240,7 @@ public class Bm25Index {
             }
         } catch (Exception e) {
             log.warn("Jackson parse failed, falling back to regex: {}", e.getMessage());
-            // Fallback to regex for backward compatibility.
+            // 回退到正则以保持向后兼容。
             java.util.regex.Matcher m = java.util.regex.Pattern.compile(
                     "\\{\"source\":\"(.*?)\",\"chunkIndex\":(\\d+),\"content\":\"(.*?)\"\\}").matcher(s);
             while (m.find()) {

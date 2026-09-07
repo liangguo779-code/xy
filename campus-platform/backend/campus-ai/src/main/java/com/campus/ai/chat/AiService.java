@@ -7,13 +7,10 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 
 /**
- * Application boundary for the AI service. The three pending/confirm methods that
- * referenced Python-side endpoints which never existed have been removed; the FastAPI
- * service never implemented them and the frontend never called them.
+ * AI 服务的应用层边界接口。之前引用 Python 服务端点的三个 pending/confirm 方法已移除；
+ * FastAPI 服务从未实现过它们，前端也从未调用过。
  */
 public interface AiService {
-
-    ChatResponse chat(ChatRequest request);
 
     Map<String, Object> getKnowledgeList();
 

@@ -14,8 +14,8 @@ import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Mirrors the Python service's {@code _config.json} + 30-second in-memory cache. Disabled
- * files are excluded from both vector and BM25 retrieval.
+ * 对应 Python 服务的 {@code _config.json} + 30 秒内存缓存。
+ * 被禁用的文件会从向量检索和 BM25 检索中排除。
  */
 @Slf4j
 @Component

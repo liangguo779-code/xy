@@ -1,4 +1,4 @@
-package com.campus.ai.rag.retrieval;
+package com.campus.ai.retrieval;
 
 import com.campus.ai.config.AiProperties;
 import com.campus.ai.knowledge.model.ChunkDto;
@@ -13,6 +13,21 @@ import org.springframework.stereotype.Component;
 
 import java.util.*;
 
+/**
+ * Elasticsearch 向量存储门面：封装 ES Java Client 的 KNN 向量检索。
+ *
+ * <p>直接使用 ES Client 而非 LangChain4j 的 {@code ElasticsearchEmbeddingStore}，
+ * 原因是我们需要自定义字段（source、chunk_index、section_title、section_path、
+ * parent_index、is_parent）和自定义映射（dense_vector + cosine 相似度）。
+ * LangChain4j 内置的 store 只支持扁平的"文本 + 向量"结构。
+ *
+ * <p>如果没有这个文件：
+ * <ul>
+ *   <li>知识文档的向量无法写入 Elasticsearch，检索功能完全不可用</li>
+ *   <li>父子分块的元数据（parent_index、section_path）无法存储和查询</li>
+ *   <li>知识库的增删改查（上传、重建、删除）将失去底层存储支撑</li>
+ * </ul>
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -54,9 +69,9 @@ public class VectorStoreFacade {
                 BulkRequest.Builder br = new BulkRequest.Builder();
                 for (ChunkDto c : batch) {
                     if (c.getContent() == null || c.getContent().isBlank()) continue;
-                    // Enrich text with section path for better embedding quality.
-                    // The section path provides hierarchical context (e.g. "第一章 / 第十条")
-                    // that helps the embedding model distinguish between similar clauses.
+                    // 用章节路径丰富文本，提升 Embedding 质量。
+                    // 章节路径提供层次化上下文（如"第一章 / 第十条"），
+                    // 帮助 Embedding 模型区分相似条款。
                     String enrichedText = c.getSectionPath() != null && !c.getSectionPath().isEmpty()
                             ? c.getSectionPath() + "\n" + c.getContent()
                             : c.getContent();
@@ -100,17 +115,16 @@ public class VectorStoreFacade {
     }
 
     /**
-     * Search for chunks matching the query.
-     * Filters out parent chunks (is_parent=true) — only child chunks are used for retrieval.
-     * The caller (HybridRetriever.resolveParents) expands matched children to their parent
-     * chunks for generation context.
+     * 检索与查询匹配的分块。
+     * 过滤掉父分块（is_parent=true）—— 只用子分块做检索。
+     * 调用方（HybridRetriever.resolveParents）会将匹配到的子分块展开为父分块以提供完整上下文。
      */
     public List<Hit> search(String query, int topK, Set<String> disabledSources) {
         try {
             float[] qVec = embed(query);
             List<Float> qVecList = new ArrayList<>(qVec.length);
             for (float f : qVec) qVecList.add(f);
-            // Fetch more candidates to account for parent-chunk filtering.
+            // 多取一些候选，以补偿父分块过滤带来的损耗。
             int fetchSize = topK * 3;
             KnnQuery knn = new KnnQuery.Builder().field("embedding").k(fetchSize).numCandidates(fetchSize * 2).queryVector(qVecList).build();
             SearchRequest.Builder sb = new SearchRequest.Builder().index(indexName()).size(fetchSize).knn(knn);
@@ -122,7 +136,7 @@ public class VectorStoreFacade {
                 int parentIndex = src.containsKey("parent_index") ? ((Number)src.get("parent_index")).intValue() : -1;
                 boolean isParent = src.containsKey("is_parent") ? (Boolean)src.get("is_parent") : false;
                 String sectionPath = src.containsKey("section_path") ? (String)src.get("section_path") : "";
-                // Skip parent chunks — only use child chunks for precise retrieval.
+                // 跳过父分块 —— 只用子分块做精确检索。
                 if (isParent) continue;
                 out.add(new Hit(
                         (String)src.get("source"),
@@ -141,8 +155,8 @@ public class VectorStoreFacade {
     }
 
     /**
-     * Get a specific chunk by source and chunkIndex.
-     * Used to fetch parent chunks when a child is matched.
+     * 根据 source 和 chunkIndex 获取指定分块。
+     * 用于在子分块匹配时获取其父分块。
      */
     public Hit getByIndex(String source, int chunkIndex) {
         try {

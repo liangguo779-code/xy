@@ -6,9 +6,9 @@ import com.campus.ai.knowledge.model.ChunkDto;
 import com.campus.ai.knowledge.pipeline.DocumentConverter;
 import com.campus.ai.knowledge.pipeline.IngestionQueue;
 import com.campus.ai.knowledge.pipeline.MarkdownSectionSplitter;
-import com.campus.ai.rag.retrieval.Bm25Index;
+import com.campus.ai.retrieval.Bm25Index;
 import com.campus.ai.knowledge.store.DisabledFilesCache;
-import com.campus.ai.rag.retrieval.VectorStoreFacade;
+import com.campus.ai.retrieval.VectorStoreFacade;
 import com.campus.common.exception.BusinessException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +28,7 @@ import java.util.*;
 import java.util.stream.Stream;
 
 /**
- * Knowledge base lifecycle: scan, upload, toggle, delete, rebuild. Mirrors the
+ * 知识库生命周期管理：扫描、上传、启停、删除、重建。对应之前
  * {@code api/knowledge.py} FastAPI router with the same JSON shapes consumed by
  * {@code frontend/src/views/admin/KnowledgeManage.vue}.
  */

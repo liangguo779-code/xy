@@ -16,18 +16,16 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Best-effort downloader for Hugging Face model files (used by the local ONNX
- * embedder / reranker). If {@code HF_HUB_OFFLINE=1} is set, the downloader skips
- * network access and only validates that the local directory already has the
- * required files.
+ * HuggingFace 模型文件下载器（用于本地 ONNX Embedding / 重排序模型）。
+ * 如果设置了 {@code HF_HUB_OFFLINE=1}，则跳过网络访问，仅验证本地目录是否已包含所需文件。
  *
- * <p>The repo layout expected by langchain4j's BGE / cross-encoder loaders is the
- * standard ONNX export from Hugging Face {@code Xenova/} namespace, e.g.
+ * <p>langchain4j 的 BGE / cross-encoder 加载器期望的仓库布局是
+ * HuggingFace {@code Xenova/} 命名空间的标准 ONNX 导出格式，例如：
  * <pre>
  *   model.onnx
  *   tokenizer.json
- *   tokenizer_config.json   (cross-encoder only)
- *   special_tokens_map.json (cross-encoder only)
+ *   tokenizer_config.json   （仅 cross-encoder）
+ *   special_tokens_map.json （仅 cross-encoder）
  * </pre>
  */
 @Slf4j
@@ -41,18 +39,16 @@ public final class HuggingFaceModelLoader {
     private HuggingFaceModelLoader() {}
 
     /**
-     * Base URL for the Hugging Face model hub. Defaults to the official Chinese
-     * mirror so the pipeline works in mainland China without extra config; the
-     * Hugging Face canonical host is reachable by setting
-     * {@code HF_ENDPOINT=https://huggingface.co} in the environment.
+     * HuggingFace 模型仓库的 base URL。默认使用国内镜像，使服务在中国大陆无需额外配置即可工作；
+     * 通过设置环境变量 {@code HF_ENDPOINT=https://huggingface.co} 可切换到官方源。
      */
     private static final String HF_ENDPOINT = System.getenv().getOrDefault(
             "HF_ENDPOINT", "https://hf-mirror.com");
 
     /**
-     * Ensure the given local directory contains the listed files. Downloads from
-     * {@code {HF_ENDPOINT}/{repo}/resolve/main/{filename}} if any file is missing.
-     * Returns the directory path on success.
+     * 确保指定的本地目录包含所需的文件。如果有文件缺失，
+     * 从 {@code {HF_ENDPOINT}/{repo}/resolve/main/{filename}} 下载。
+     * 成功时返回目录路径。
      */
     public static Path ensure(String repo, Path dir, List<String> files) throws IOException {
         Files.createDirectories(dir);
@@ -92,7 +88,7 @@ public final class HuggingFaceModelLoader {
         return dir;
     }
 
-    /** Resolve a path under the AI home directory. */
+    /** 解析 AI 根目录下的路径。 */
     public static Path underHome(String home, String... segments) {
         Path p = Paths.get(home);
         for (String s : segments) p = p.resolve(s);

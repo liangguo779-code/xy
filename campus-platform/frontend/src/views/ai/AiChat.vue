@@ -31,10 +31,14 @@
             </div>
             <div class="bubble">
               <div v-if="msg.role === 'user'" class="text">{{ msg.content }}</div>
-              <div v-else-if="msg.content" class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+              <div v-else-if="msg.content" class="markdown-body" :class="{ 'typing-cursor': loading && msg.role === 'assistant' && msg === messages[messages.length - 1] }" v-html="renderMarkdown(msg.content)"></div>
               <div v-else class="thinking-indicator">
                 <el-icon class="is-loading"><Loading /></el-icon>
                 <span>{{ msg.stage || '思考中...' }}</span>
+              </div>
+
+              <div v-if="msg.usage" class="usage-badge">
+                📊 输入 {{ msg.usage.prompt }} + 输出 {{ msg.usage.completion }} tokens
               </div>
 
               <div v-if="msg.sources?.length" class="sources-section">
@@ -75,7 +79,8 @@
           <el-input v-model="input" placeholder="输入你的问题，例如：挂科怎么重修？"
                     @keyup.enter="handleSend" :disabled="loading" size="large">
             <template #append>
-              <el-button type="primary" @click="handleSend" :loading="loading">发送</el-button>
+              <el-button v-if="loading" type="danger" @click="handleCancel">取消</el-button>
+              <el-button v-else type="primary" @click="handleSend">发送</el-button>
             </template>
           </el-input>
         </div>
@@ -88,13 +93,44 @@
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { User, MagicStick, Loading, Document, ArrowDown, Plus, Delete } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import hljs from 'highlight.js/lib/core'
+import java from 'highlight.js/lib/languages/java'
+import javascript from 'highlight.js/lib/languages/javascript'
+import python from 'highlight.js/lib/languages/python'
+import sql from 'highlight.js/lib/languages/sql'
+import bash from 'highlight.js/lib/languages/bash'
+import json from 'highlight.js/lib/languages/json'
+import xml from 'highlight.js/lib/languages/xml'
 import { chat, chatStream, getSessions, getSessionMessages, deleteSession as deleteSessionApi } from '@/api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+// Register highlight.js languages (tree-shaking — only bundles what we use)
+hljs.registerLanguage('java', java)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('sh', bash)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('html', xml)
+
+// Configure marked with highlight.js code renderer
+const renderer = new marked.Renderer()
+renderer.code = function ({ text, lang }) {
+  const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
+  const highlighted = hljs.highlight(text, { language }).value
+  return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`
+}
+marked.setOptions({ renderer, breaks: true })
 
 const input = ref('')
 const loading = ref(false)
 const messages = ref([])
 const messagesRef = ref()
+let abortController = null  // For cancelling in-flight SSE streams
 
 const sessions = ref([])
 const currentSessionId = ref(null)
@@ -113,7 +149,8 @@ function handleSuggested(question) {
 
 function renderMarkdown(text) {
   if (!text) return ''
-  return marked.parse(text, { breaks: true })
+  // Sanitize with DOMPurify to prevent XSS from LLM-generated HTML
+  return DOMPurify.sanitize(marked.parse(text))
 }
 
 function parseSources(sources) {
@@ -219,6 +256,7 @@ async function handleSend() {
   })
   messages.value.push(assistantMsg)
 
+  abortController = new AbortController()
   try {
     await chatStream(
       { question, sessionId: currentSessionId.value },
@@ -248,13 +286,32 @@ async function handleSend() {
           // 刷新左侧会话列表，让新会话显示出来
           loadSessions()
         }
+      },
+      // onCorrection: 后端剥离了捏造的 [来源N] 引用，把 cleaned 替换已展示内容。
+      // rejected=true 表示系统级幻觉，直接覆盖显示清洗后的兜底文本。
+      (event) => {
+        if (event && typeof event.cleaned === 'string') {
+          assistantMsg.content = event.cleaned
+          scrollToBottom()
+        }
       }
     )
   } catch (e) {
-    assistantMsg.content = '抱歉，暂时无法回答您的问题，请稍后重试。'
+    if (e.name === 'AbortError') {
+      assistantMsg.content += '\n\n*（已取消）*'
+    } else {
+      assistantMsg.content = '抱歉，暂时无法回答您的问题，请稍后重试。'
+    }
   } finally {
+    abortController = null
     loading.value = false
     scrollToBottom()
+  }
+}
+
+function handleCancel() {
+  if (abortController) {
+    abortController.abort()
   }
 }
 
@@ -436,6 +493,28 @@ onMounted(async () => {
 .content-text { font-size: 13px; color: #606266; line-height: 1.8; white-space: pre-wrap; background: #f9f9f9; padding: 12px; border-radius: 6px; max-height: 500px; overflow-y: auto; }
 
 .input-area { padding: 16px; border-top: 1px solid #ebeef5; }
+
+/* 打字光标：流式输出时在最后一个 token 后闪烁 */
+.typing-cursor::after {
+  content: '▍';
+  animation: blink 1s step-end infinite;
+  color: #409eff;
+  font-weight: normal;
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Usage 角标 */
+.usage-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: #909399;
+  background: #f0f2f5;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-top: 4px;
+}
 
 /* 推荐问题 */
 .suggested-questions { padding: 16px; }

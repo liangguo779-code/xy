@@ -15,6 +15,12 @@ public class ChatResponse {
 
     private List<SourceItem> sources;
 
+    /**
+     * 检索置信度："high" / "medium" / "low" 之一。由 RagOrchestrator 根据最高重排序分数设置。
+     * 前端可将其渲染为可信度标签。
+     */
+    private String confidence;
+
     @Data
     @Builder
     public static class SourceItem {

@@ -18,6 +18,19 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * AI 对话控制器：提供聊天、会话管理等 REST API。
+ *
+ * <p>支持普通请求（{@code /chat}）和 SSE 流式请求（{@code /chat/stream}）。
+ * 聊天请求委托给 {@link RagOrchestrator} 处理，会话历史由 {@link AiChatHistoryService} 管理。
+ *
+ * <p>如果没有这个文件：
+ * <ul>
+ *   <li>前端无法调用 AI 聊天接口，整个对话功能不可用</li>
+ *   <li>SSE 流式输出缺失，用户只能等到完整回答生成后才能看到结果</li>
+ *   <li>会话的创建、删除、重命名等管理功能不可用</li>
+ * </ul>
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/ai")
@@ -41,11 +54,9 @@ public class AiChatController {
                             : request.getQuestion());
             sessionId = session.getId();
         }
-        if (request.getHistory() == null || request.getHistory().isEmpty()) {
-            request.setHistory(loadHistory(sessionId, userId));
-        }
+        // MemoryStore 从 MySQL 加载历史 —— 无需手动 loadHistory()
         historyService.saveMessage(sessionId, "user", request.getQuestion(), null);
-        ChatResponse response = ragOrchestrator.run(request);
+        ChatResponse response = ragOrchestrator.run(request, sessionId, stage -> {});
         response.setSessionId(sessionId);
         try {
             String sourcesJson = response.getSources() != null
@@ -60,9 +71,7 @@ public class AiChatController {
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatStream(@Valid @RequestBody ChatRequest request,
                                   jakarta.servlet.http.HttpServletResponse response) {
-        // Force UTF-8 encoding for SSE response. Spring's SseEmitter ignores the
-        // charset parameter on the produces attribute and defaults to ISO-8859-1,
-        // which corrupts multi-byte UTF-8 characters.
+        // SSE 响应必须显式设置 UTF-8，否则 JDK 17 + Windows 默认 ISO-8859-1，中文乱码。
         response.setCharacterEncoding("UTF-8");
         response.setContentType("text/event-stream;charset=UTF-8");
         Long userId = safeUserId();
@@ -74,9 +83,7 @@ public class AiChatController {
                             : request.getQuestion());
             sessionId = session.getId();
         }
-        if (request.getHistory() == null || request.getHistory().isEmpty()) {
-            request.setHistory(loadHistory(sessionId, userId));
-        }
+        // MemoryStore 从 MySQL 加载历史 —— 无需手动 loadHistory()
         historyService.saveMessage(sessionId, "user", request.getQuestion(), null);
 
         SseEmitter emitter = new SseEmitter(120_000L);
@@ -87,7 +94,7 @@ public class AiChatController {
             try {
                 sendJson(emitter, Map.of("type", "session", "sessionId", finalSessionId));
 
-                ChatResponse resp = ragOrchestrator.run(request, event -> {
+                ChatResponse resp = ragOrchestrator.run(request, finalSessionId, event -> {
                     try {
                         switch (event.type()) {
                             case "stage" -> sendJson(emitter, Map.of("type", "stage", "stage", event.stage(), "message", event.payload()));
@@ -103,8 +110,8 @@ public class AiChatController {
                     }
                 });
 
-                // The orchestrator's return value already contains the fully streamed answer
-                // (streamGenerate now blocks until completion), so no need for a second run.
+                // 调度器的返回值已经包含完整的流式回答（streamGenerate 会阻塞到完成），
+                // 无需再次运行。
                 answerRef.set(resp.getAnswer() == null ? "" : resp.getAnswer());
                 if (resp.getSources() != null && sourcesJsonRef.get() == null) {
                     sourcesJsonRef.set(objectMapper.writeValueAsString(resp.getSources()));
@@ -163,22 +170,6 @@ public class AiChatController {
         return R.ok();
     }
 
-    private List<ChatRequest.HistoryItem> loadHistory(Long sessionId, Long userId) {
-        try {
-            List<AiChatMessageVO> msgs = historyService.getMessages(sessionId, userId);
-            if (msgs == null || msgs.isEmpty()) return List.of();
-            return msgs.stream().map(m -> {
-                ChatRequest.HistoryItem item = new ChatRequest.HistoryItem();
-                item.setRole(m.getRole());
-                item.setContent(m.getContent());
-                return item;
-            }).toList();
-        } catch (Exception e) {
-            log.warn("Load history failed: {}", e.getMessage());
-            return List.of();
-        }
-    }
-
     private Long safeUserId() {
         try {
             return StpUtil.getLoginIdAsLong();
@@ -198,9 +189,8 @@ public class AiChatController {
     }
 
     /**
-     * Send an SSE event with UTF-8 encoded JSON payload.
-     * The response is forced to UTF-8 in the controller method, so SseEmitter
-     * will write the String using UTF-8 encoding.
+     * 发送 UTF-8 编码的 JSON SSE 事件。
+     * 响应已在控制器方法中强制为 UTF-8，因此 SseEmitter 会以 UTF-8 编码写入字符串。
      */
     private void sendJson(SseEmitter emitter, Object payload) throws Exception {
         emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(payload)));

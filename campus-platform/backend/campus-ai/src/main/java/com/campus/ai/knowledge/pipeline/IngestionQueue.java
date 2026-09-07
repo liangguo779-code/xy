@@ -11,8 +11,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
- * Background executor for indexing work. Replaces the FastAPI {@code BackgroundTasks}.
- * The pool size is bounded by {@code campus.ai.rebuild.max-concurrent} (default 1).
+ * 索引构建的后台执行器。替代 FastAPI 的 {@code BackgroundTasks}。
+ * 线程池大小由 {@code campus.ai.rebuild.max-concurrent} 限制（默认 1）。
  */
 @Slf4j
 @Component

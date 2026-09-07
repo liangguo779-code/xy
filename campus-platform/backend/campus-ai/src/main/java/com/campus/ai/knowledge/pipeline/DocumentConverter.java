@@ -15,13 +15,13 @@ import java.nio.file.Path;
 import java.util.Locale;
 
 /**
- * Converts a non-Markdown knowledge file into Markdown-shaped text. Mirrors the Python
- * service's {@code rag.converter.convert_to_markdown} fallback path:
+ * 将非 Markdown 的知识文件转换为 Markdown 格式文本。对应 Python 服务的
+ * {@code rag.converter.convert_to_markdown} 兜底路径：
  * <ul>
- *   <li>{@code .md} and {@code .txt} are returned as-is (UTF-8 text).</li>
- *   <li>{@code .pdf} is read with Apache PDFBox and wrapped with {@code ## 第 N 页} headings.</li>
- *   <li>{@code .docx} is read with Apache POI and {@code Heading 1/2/3} styles are mapped to
- *       {@code # / ## / ###} (Word style IDs are 1/2/3 respectively).</li>
+ *   <li>{@code .md} 和 {@code .txt} 原样返回（UTF-8 文本）。</li>
+ *   <li>{@code .pdf} 使用 Apache PDFBox 读取，用 {@code ## 第 N 页} 标题包裹。</li>
+ *   <li>{@code .docx} 使用 Apache POI 读取，{@code Heading 1/2/3} 样式映射为
+ *       {@code # / ## / ###}（Word 样式 ID 分别为 1/2/3）。</li>
  * </ul>
  */
 @Slf4j
@@ -40,8 +40,8 @@ public class DocumentConverter {
             return readDocx(file);
         }
         if (name.endsWith(".doc")) {
-            // Legacy binary .doc: not supported by POI-XWPF. Surface a clear error so the admin
-            // sees a helpful message rather than an empty chunk.
+            // 旧版二进制 .doc 格式：POI-XWPF 不支持。抛出明确错误，
+            // 让管理员看到有用的信息而非空分块。
             throw new IOException("Legacy .doc format is not supported; please convert to .docx first: " + file);
         }
         throw new IOException("Unsupported file type: " + file);
@@ -50,7 +50,7 @@ public class DocumentConverter {
     private String readPdf(Path file) throws IOException {
         try (PDDocument doc = Loader.loadPDF(file.toFile())) {
             PDFTextStripper stripper = new PDFTextStripper();
-            // Split per-page and add a heading so the section splitter can pick up boundaries.
+            // 按页切分并添加标题，使 section splitter 能识别边界。
             int total = doc.getNumberOfPages();
             StringBuilder out = new StringBuilder();
             for (int p = 1; p <= total; p++) {
