@@ -9,6 +9,7 @@ import com.campus.ai.chat.entity.AiChatSession;
 import com.campus.ai.chat.mapper.AiChatMessageMapper;
 import com.campus.ai.chat.mapper.AiChatSessionMapper;
 import com.campus.ai.chat.AiChatHistoryService;
+import com.campus.ai.memory.MemoryStore;
 import com.campus.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,7 @@ public class AiChatHistoryServiceImpl extends ServiceImpl<AiChatSessionMapper, A
 
     private final AiChatSessionMapper sessionMapper;
     private final AiChatMessageMapper messageMapper;
+    private final MemoryStore memoryStore;
 
     @Override
     public AiChatSessionVO createSession(Long userId, String title) {
@@ -92,6 +94,8 @@ public class AiChatHistoryServiceImpl extends ServiceImpl<AiChatSessionMapper, A
                 .eq(AiChatMessage::getSessionId, sessionId));
         // 删除会话
         sessionMapper.deleteById(sessionId);
+        // 清除 Redis 中的对话缓存
+        memoryStore.evict(sessionId);
     }
 
     @Override
