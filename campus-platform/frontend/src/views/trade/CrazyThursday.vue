@@ -1,5 +1,6 @@
 <template>
   <div class="crazy-thursday">
+    <!-- 主视觉区：倒计时、报名、开奖结果按活动状态三选一展示 -->
     <div class="hero-section">
       <div class="kfc-icon">🍗</div>
       <h1>疯狂星期四</h1>
@@ -85,10 +86,15 @@
 </template>
 
 <script setup>
+/**
+ * 疯狂星期四活动页：每周四 11:00 开放报名、12:00 自动开奖，限 10 个名额
+ * 倒计时每秒递减，归零后重新拉取状态以切换报名或开奖展示
+ */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
+/** 活动状态取自后端 status 接口，countdown 为距下一时段的剩余毫秒数 */
 const status = ref({
   countdown: 0,
   isRegisterTime: false,
@@ -102,13 +108,16 @@ const status = ref({
   status: 0
 })
 const registering = ref(false)
+/** 倒计时定时器句柄，组件卸载时清除避免泄漏 */
 let timer = null
 
+/** 将剩余毫秒拆分为天/时/分/秒展示 */
 const days = computed(() => Math.floor(status.value.countdown / 86400000))
 const hours = computed(() => Math.floor((status.value.countdown % 86400000) / 3600000))
 const minutes = computed(() => Math.floor((status.value.countdown % 3600000) / 60000))
 const seconds = computed(() => Math.floor((status.value.countdown % 60000) / 1000))
 
+/** 拉取活动状态（报名名单、剩余名额、中奖结果） */
 async function loadStatus() {
   try {
     const res = await request.get('/api/crazy-thursday/status')
@@ -116,16 +125,19 @@ async function loadStatus() {
   } catch (e) { /* ignore */ }
 }
 
+/** 每秒递减倒计时，归零后重新拉取状态以响应时段切换 */
 function startCountdown() {
   timer = setInterval(() => {
     if (status.value.countdown > 0) {
       status.value.countdown -= 1000
     } else {
+      // 归零意味着刚进入报名期或已开奖，以服务端状态为准刷新展示
       loadStatus()
     }
   }, 1000)
 }
 
+/** 提交报名，res.data.success 区分业务失败（重复报名、名额已满等） */
 async function handleRegister() {
   registering.value = true
   try {
@@ -192,6 +204,7 @@ onUnmounted(() => {
 }
 .slot-num { font-size: 12px; color: #909399; }
 
+/* pulse 呼吸动画持续强调报名按钮，引导用户点击 */
 .register-btn {
   font-size: 20px; padding: 16px 48px; height: auto;
   animation: pulse 1.5s infinite;

@@ -4,7 +4,9 @@ import com.campus.ai.knowledge.model.ChunkDto;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -100,12 +102,19 @@ public class MarkdownSectionSplitter {
         return count;
     }
 
+    /** 小于该字符数的分块无检索价值，直接丢弃。 */
     private static final int MIN_CHUNK_SIZE = 30;
 
+    /** 便捷重载：小分块合并阈值默认 200 字符。 */
     public List<ChunkDto> split(String source, String markdown, int chunkSize, int chunkOverlap) {
         return split(source, markdown, chunkSize, chunkOverlap, 200);
     }
 
+    /**
+     * 主分块流程：剥目录 → 按标题/条款切分 → 父子分块 → 合并小分块 → 过滤过小块 → 重新编号。
+     *
+     * @param minChunkSize 小分块合并阈值（字符数），低于此值的相邻同章节分块会被合并
+     */
     public List<ChunkDto> split(String source, String markdown, int chunkSize, int chunkOverlap, int minChunkSize) {
         if (markdown == null || markdown.isBlank()) {
             return List.of();
@@ -121,9 +130,22 @@ public class MarkdownSectionSplitter {
         chunks = mergeSmallChunks(chunks, chunkSize, minChunkSize);
         // 过滤掉没有检索价值的极小分块。
         chunks.removeIf(c -> c.getContent() != null && c.getContent().trim().length() < MIN_CHUNK_SIZE);
-        // 过滤后重新编号。
+        // 过滤后重新编号，并把 parentIndex 从旧编号空间映射到新编号空间。
+        // 注意：parentIndex 引用的父分块（isParent）在 merge 阶段原样保留旧 chunkIndex，
+        // 而子/合并分块的 chunkIndex 已被 merge 重写——所以映射只能以父分块的旧编号为 key。
+        Map<Integer, Integer> parentRemap = new HashMap<>();
         for (int i = 0; i < chunks.size(); i++) {
-            chunks.get(i).setChunkIndex(i);
+            ChunkDto c = chunks.get(i);
+            if (c.isParent()) {
+                parentRemap.put(c.getChunkIndex(), i);
+            }
+        }
+        for (int i = 0; i < chunks.size(); i++) {
+            ChunkDto c = chunks.get(i);
+            if (c.getParentIndex() >= 0) {
+                c.setParentIndex(parentRemap.getOrDefault(c.getParentIndex(), -1));
+            }
+            c.setChunkIndex(i);
         }
         return chunks;
     }
@@ -202,6 +224,7 @@ public class MarkdownSectionSplitter {
         return merged;
     }
 
+    /** 把合并缓冲区的内容组装为普通子分块（isParent=false）。 */
     private ChunkDto buildMergedChunk(int index, String content, String path, String title, String source, int parentIndex) {
         return ChunkDto.builder()
                 .source(source)
@@ -214,6 +237,7 @@ public class MarkdownSectionSplitter {
                 .build();
     }
 
+    /** 按 Markdown 标题切出各 section（含层级路径），section 内再按条款细分；无标题时整体按条款切。 */
     private List<Section> parseSections(String markdown) {
         List<Hit> hits = new ArrayList<>();
         Matcher m = HEADING.matcher(markdown);
@@ -237,6 +261,37 @@ public class MarkdownSectionSplitter {
             // 如果存在条款，按条款切分 section body
             List<Section> articleSections = parseArticles(h.title, path, body);
             out.addAll(articleSections);
+        }
+        return mergeOrphanSources(out);
+    }
+
+    /**
+     * 来源标注行若独占一个 section（如 ## 节标题与 ### 子标题之间、或节内无条款时），
+     * 并入其后一节的正文开头。否则会形成"只有一行来源标注"的垃圾分块，
+     * 且与后一节路径不同、无法被 mergeSmallChunks 合并。
+     */
+    private static List<Section> mergeOrphanSources(List<Section> sections) {
+        List<Section> out = new ArrayList<>();
+        String pending = null;
+        for (Section sec : sections) {
+            String body = sec.body() == null ? "" : sec.body().trim();
+            if (body.matches("\\*\\*来源(补充)?[：:][^\\n]*\\*\\*")) {
+                pending = pending == null ? body : pending + "\n\n" + body;
+                continue;
+            }
+            if (pending != null) {
+                body = pending + "\n\n" + body;
+                pending = null;
+            }
+            out.add(new Section(sec.title(), sec.path(), body));
+        }
+        if (pending != null) {
+            if (out.isEmpty()) {
+                out.add(new Section("__root__", "__root__", pending));
+            } else {
+                Section last = out.remove(out.size() - 1);
+                out.add(new Section(last.title(), last.path(), last.body() + "\n\n" + pending));
+            }
         }
         return out;
     }
@@ -263,13 +318,11 @@ public class MarkdownSectionSplitter {
 
         List<Section> out = new ArrayList<>();
 
-        // 第一个条款之前的内容（如有）
-        if (articleHits.get(0).start > 0) {
-            String preContent = body.substring(0, articleHits.get(0).start).trim();
-            if (!preContent.isEmpty()) {
-                out.add(new Section(sectionTitle, sectionPath, preContent));
-            }
-        }
+        // 第一个条款之前的内容（来源标注、短序言、小节标题等）并入第一个条款。
+        // 若独立成块会形成"只有一行来源标注"的垃圾分块，且与首条款路径不同、
+        // 无法被 mergeSmallChunks 合并——所以从源头并入，保证分块自包含。
+        String preContent = articleHits.get(0).start > 0
+                ? body.substring(0, articleHits.get(0).start).trim() : "";
 
         // 每个条款作为独立的 section
         for (int i = 0; i < articleHits.size(); i++) {
@@ -278,6 +331,9 @@ public class MarkdownSectionSplitter {
             int articleEnd = i + 1 < articleHits.size() ? articleHits.get(i + 1).start : body.length();
 
             String articleContent = body.substring(articleStart, articleEnd).trim();
+            if (i == 0 && !preContent.isEmpty()) {
+                articleContent = preContent + "\n\n" + articleContent;
+            }
             if (!articleContent.isEmpty()) {
                 // 构建条款路径：章节路径 + 条款标题
                 String articlePath = sectionPath.isEmpty() || "__root__".equals(sectionPath)
@@ -294,34 +350,36 @@ public class MarkdownSectionSplitter {
     private static String stripDocHeaders(String body) {
         String[] lines = body.split("\\R", -1);
         int start = 0;
+        // body 常以换行开头（标题匹配 end 不含换行），先跳过前导空行，
+        // 否则第一行是空串导致文号行匹配失败、留下垃圾小块。
+        while (start < lines.length && lines[start].trim().isEmpty()) {
+            start++;
+        }
         while (start < lines.length && DOC_HEADER.matcher(lines[start]).matches()) {
             start++;
+            while (start < lines.length && lines[start].trim().isEmpty()) {
+                start++;
+            }
         }
         if (start == 0) return body;
         return String.join("\n", java.util.Arrays.copyOfRange(lines, start, lines.length));
     }
 
     private static String buildPath(List<Hit> hits, int idx) {
-        // 路径锚定在最近一个 # 顶级标题（政策文档边界），向下拼接
-        // 所有子标题。这样多政策文件按页号分片时，相邻政策不会"串味"
-        // 进彼此的 sectionPath。
-        // 当前 heading 本身就是 # 时，路径就是它自己。
-        if (hits.get(idx).level() == 1) {
-            return hits.get(idx).title;
-        }
-        int start = 0;
+        // 祖先链路径：从当前标题向上回溯，只收录层级严格递减的祖先标题。
+        // 兄弟章节（如"第一章"与"第二章"）不再互相串进对方路径；
+        // 多政策文件天然隔离——每个 # 顶级标题都是新的路径根。
+        List<String> chain = new ArrayList<>();
+        chain.add(hits.get(idx).title);
+        int curLevel = hits.get(idx).level();
         for (int j = idx - 1; j >= 0; j--) {
-            if (hits.get(j).level() == 1) {
-                start = j;
-                break;
+            if (hits.get(j).level() < curLevel) {
+                chain.add(0, hits.get(j).title);
+                curLevel = hits.get(j).level();
+                if (curLevel == 1) break;
             }
         }
-        StringBuilder path = new StringBuilder();
-        for (int j = start; j <= idx; j++) {
-            if (path.length() > 0) path.append(" / ");
-            path.append(hits.get(j).title);
-        }
-        return path.toString();
+        return String.join(" / ", chain);
     }
 
     /**
@@ -386,6 +444,7 @@ public class MarkdownSectionSplitter {
         return chunkIndex;
     }
 
+    /** 优先按段落边界贪心装箱到 chunkSize；超长段落交给 splitBySize 按句切。 */
     private List<String> splitByParagraphs(String body, int chunkSize, int chunkOverlap) {
         String[] paragraphs = body.split("\\n\\s*\\n");
         List<String> chunks = new ArrayList<>();
@@ -415,6 +474,7 @@ public class MarkdownSectionSplitter {
         return chunks;
     }
 
+    /** 超长文本兜底切法：先按中文句子边界切句，再按 chunkSize 装箱，避免句子被拦腰截断。 */
     private List<String> splitBySize(String text, int chunkSize, int chunkOverlap) {
         // 按句子边界切分而非字符位置。
         // 中文句子分隔符：。！？；\n
@@ -432,17 +492,25 @@ public class MarkdownSectionSplitter {
 
         List<String> out = new ArrayList<>();
         StringBuilder chunk = new StringBuilder();
+        // 当前块开头的重叠种子长度：种子本身不算新内容，避免"只有种子"的碎块被单独刷出。
+        int seedLen = 0;
         for (String s : sentences) {
-            if (chunk.length() + s.length() > chunkSize && chunk.length() > 0) {
-                out.add(chunk.toString().trim());
-                // 重叠：保留最后一个句子作为重叠。
-                chunk = new StringBuilder();
-                if (chunkOverlap > 0) {
-                    // 从末尾找到作为重叠的句子
-                    String last = out.get(out.size() - 1);
-                    int overlapStart = Math.max(0, last.length() - chunkOverlap);
-                    // 不在句子中间断开；直接重新开始
+            boolean onlySeed = chunk.length() <= seedLen;
+            if (chunk.length() + s.length() > chunkSize && chunk.length() > 0 && !onlySeed) {
+                String emitted = chunk.toString().trim();
+                out.add(emitted);
+                chunk.setLength(0);
+                // 重叠：把上一块尾部 chunkOverlap 个字符并入下一块开头，缓解跨块语义断裂。
+                // 只作用于超长块的 splitBySize 路径（单个段落内部），
+                // **第X条** 条款 / 标题是硬边界，不会被强行重叠。
+                // 重叠按字符对齐（不强行对齐句子边界），行为可预期。
+                if (chunkOverlap > 0 && !emitted.isEmpty()) {
+                    int overlapLen = Math.min(chunkOverlap, emitted.length());
+                    // 重叠长度不超过 chunkSize - 1，保证新块仍能容纳新内容。
+                    overlapLen = Math.min(overlapLen, Math.max(0, chunkSize - 1));
+                    chunk.append(emitted, emitted.length() - overlapLen, emitted.length());
                 }
+                seedLen = chunk.length();
             }
             chunk.append(s);
         }
@@ -455,6 +523,8 @@ public class MarkdownSectionSplitter {
         return path.split(" / ").length;
     }
 
+    /** 解析出的一个逻辑节：标题 + 层级路径 + 正文。 */
     private record Section(String title, String path, String body) {}
+    /** 标题/条款在原文中的位置命中（字符偏移 + 层级 + 标题文本）。 */
     private record Hit(int start, int end, int level, String title) {}
 }

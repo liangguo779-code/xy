@@ -58,6 +58,9 @@
 </template>
 
 <script setup>
+/**
+ * 卖家主页：展示卖家资料、评价信用统计与其发布的商品，支持关注与取关
+ */
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { followUser, unfollowUser, checkFollow } from '@/api/follow'
@@ -76,11 +79,13 @@ const page = ref(1)
 const pageSize = 20
 const total = ref(0)
 
+/** 是否本人主页，本人不展示关注按钮 */
 const isSelf = computed(() => {
   const myId = Number(localStorage.getItem('userId') || 0)
   return userId === myId
 })
 
+/** 取商品首图，后端 images 存 JSON 字符串但可能已被解析为数组；解析失败返回空串由占位图兜底 */
 function getFirstImage(item) {
   try {
     const imgs = typeof item.images === 'string' ? JSON.parse(item.images) : item.images
@@ -88,6 +93,7 @@ function getFirstImage(item) {
   } catch { return '' }
 }
 
+/** 并行拉取卖家信息与评价统计，非本人再查询关注状态 */
 async function loadData() {
   loading.value = true
   try {
@@ -97,6 +103,7 @@ async function loadData() {
     ])
     seller.value = userRes.data || {}
     stats.value = statsRes.data || {}
+    // 关注关系仅在查看他人主页时才需要查询
     if (!isSelf.value) {
       const followRes = await checkFollow(userId)
       isFollowing.value = followRes.data || false
@@ -106,12 +113,14 @@ async function loadData() {
   finally { loading.value = false }
 }
 
+/** 分页加载该卖家的商品，走公共商品列表接口按 userId 过滤 */
 async function loadGoods() {
   const res = await request.get('/api/goods', { params: { userId, page: page.value, size: pageSize } })
   goodsList.value = res.data?.records || []
   total.value = res.data?.total || 0
 }
 
+/** 关注与取关切换，成功后本地翻转状态避免整页重载 */
 async function handleFollow() {
   try {
     if (isFollowing.value) {

@@ -1,10 +1,21 @@
 import request from '@/utils/request'
 
+/** 非流式 AI 问答；RAG 检索耗时长，超时放宽到 120 秒 */
 export function chat(data) {
   return request.post('/api/ai/chat', data, { timeout: 120000 })
 }
 
-export async function chatStream(data, onToken, onSources, onDone, onStage, onSession, onCorrection) {
+/**
+ * SSE 流式 AI 问答：fetch 直连后端并逐行解析 data: 事件（axios 无法读取流）。
+ * 回调：onSession 会话 ID、onStage 执行阶段、onToken 增量文本、onSources 引用来源、
+ *      onDone 完成、onCorrection 修正文本、onUsage 用量统计、onToolCall 工具调用事件；
+ *      断网按指数退避最多重试 3 次
+ * 注意：onUsage/onToolCall 必须出现在参数列表中——事件分支按名字引用这两个回调，
+ * 若未声明，后端下发 usage/tool_call 事件时会抛 ReferenceError 并被解析 catch 吞掉导致事件静默失效。
+ * 两者为可选扩展位（后端 campus-ai 当前仅下发 session/stage/token/sources/correction/done）。
+ */
+export async function chatStream(data, onToken, onSources, onDone, onStage, onSession, onCorrection, onUsage, onToolCall) {
+  // fetch 不走 axios 拦截器，需手动附带 token
   const token = localStorage.getItem('token')
   const maxRetries = 3
   let lastError = null
@@ -31,6 +42,7 @@ export async function chatStream(data, onToken, onSources, onDone, onStage, onSe
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder('utf-8')
+      // 按 \n 切行后可能残留半个事件，暂存到 buffer 等下一批数据拼完
       let buffer = ''
 
       try {
@@ -89,22 +101,27 @@ export async function chatStream(data, onToken, onSources, onDone, onStage, onSe
   throw lastError
 }
 
+/** 我的 AI 会话列表（侧边栏历史） */
 export function getSessions() {
   return request.get('/api/ai/sessions')
 }
 
+/** 某会话的历史消息 */
 export function getSessionMessages(sessionId) {
   return request.get(`/api/ai/sessions/${sessionId}/messages`)
 }
 
+/** 新建会话 */
 export function createSession(title) {
   return request.post('/api/ai/sessions', { title })
 }
 
+/** 删除会话 */
 export function deleteSession(sessionId) {
   return request.delete(`/api/ai/sessions/${sessionId}`)
 }
 
+/** 重命名会话 */
 export function updateSessionTitle(sessionId, title) {
   return request.put(`/api/ai/sessions/${sessionId}/title`, { title })
 }

@@ -9,9 +9,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/** 商品分类服务实现 */
 @Service
 public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> implements CategoryService {
 
+    /** 查询启用状态的全部分类，按排序序号升序（前端自行组装为树） */
     @Override
     public List<Category> getCategoryTree() {
         return list(new LambdaQueryWrapper<Category>()

@@ -2,6 +2,7 @@ package com.campus.user.service;
 
 import java.util.Map;
 
+/** 人机验证服务，生成并校验数学计算式验证码（用于防刷接口） */
 public interface CaptchaService {
 
     /**

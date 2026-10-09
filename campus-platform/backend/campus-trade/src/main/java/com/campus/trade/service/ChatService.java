@@ -7,6 +7,7 @@ import com.campus.trade.entity.ChatSession;
 
 import java.util.List;
 
+/** 买卖双方聊天服务，负责会话建立、消息收发、已读与撤回 */
 public interface ChatService extends IService<ChatMessage> {
 
     /**

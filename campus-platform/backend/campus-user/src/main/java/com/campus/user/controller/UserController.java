@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+/** 用户个人中心接口：查询公开资料、修改个人信息/密码、注销账号 */
 @RestController
 @RequestMapping("/api/user")
 @RequiredArgsConstructor

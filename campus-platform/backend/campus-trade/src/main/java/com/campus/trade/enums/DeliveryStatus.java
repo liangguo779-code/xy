@@ -2,6 +2,7 @@ package com.campus.trade.enums;
 
 import lombok.Getter;
 
+/** 跑腿配送单状态枚举，code 为库中存储值，随取货/送达推进，-1 表示中途取消 */
 @Getter
 public enum DeliveryStatus {
 

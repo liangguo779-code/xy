@@ -5,18 +5,27 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.common.exception.BusinessException;
+import com.campus.common.moderation.ReportCreatedEvent;
 import com.campus.trade.entity.Report;
 import com.campus.trade.mapper.ReportMapper;
 import com.campus.trade.service.ReportService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.Set;
 
+/** 举报服务实现，覆盖举报提交与平台处理 */
 @Service
+@RequiredArgsConstructor
 public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> implements ReportService {
 
+    private final ApplicationEventPublisher eventPublisher;
+
+    /** 允许的举报对象类型 */
     private static final Set<String> VALID_TARGET_TYPES = Set.of("goods", "user", "message", "post", "comment");
 
+    /** 提交举报，同人同目标仅允许存在一条待处理举报 */
     @Override
     public void createReport(Long reporterId, String targetType, Long targetId, String reason, String evidence) {
         // 校验 targetType 合法性
@@ -58,8 +67,15 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
 
         report.setStatus(0);
         save(report);
+
+        // 评论类举报触发内容安全 AI 审核闭环（campus-app 的 ModerationOrchestrator 监听）
+        if ("comment".equals(targetType)) {
+            eventPublisher.publishEvent(new ReportCreatedEvent(
+                    report.getId(), targetType, targetId, reporterId, reason));
+        }
     }
 
+    /** 分页查询举报列表（管理端），按创建时间倒序 */
     @Override
     public Page<Report> listReports(Integer status, int page, int size) {
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
@@ -68,6 +84,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 分页查询我提交的举报，按创建时间倒序 */
     @Override
     public Page<Report> listMyReports(Long reporterId, Integer status, int page, int size) {
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<Report>()
@@ -77,6 +94,7 @@ public class ReportServiceImpl extends ServiceImpl<ReportMapper, Report> impleme
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 处理举报，仅待处理状态可处理，处理后为终态 */
     @Override
     public void handleReport(Long reportId, String result, int status) {
         Report report = getById(reportId);

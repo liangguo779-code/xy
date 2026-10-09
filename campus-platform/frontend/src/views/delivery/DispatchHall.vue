@@ -66,6 +66,7 @@
             </div>
           </div>
           <div class="order-actions">
+            <!-- 状态流转按钮：仅待取货/配送中阶段可操作，其余状态隐藏 -->
             <el-button v-if="item.status === 1" type="warning" @click="handlePickup(item.id)">
               取货
             </el-button>
@@ -80,16 +81,23 @@
 </template>
 
 <script setup>
+/**
+ * 派单大厅：跑腿工单浏览与状态流转
+ * 待接单列表可抢单；我的工单按状态推进（取货、送达），状态取值同后端 DeliveryStatus
+ */
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPendingOrders, getMyDeliveries, acceptOrder, pickupGoods, deliverGoods } from '@/api/delivery'
 
+/** 当前页签：pending-待接单 / mine-我的工单 */
 const tab = ref('pending')
 const pendingList = ref([])
 const myList = ref([])
 
+/** 状态标签色：0-待接单 1-待取货 2-配送中 3-已送达（已取消等未知值兜底灰色） */
 const statusType = (s) => ({ 0: 'info', 1: 'warning', 2: 'primary', 3: 'success' }[s] || 'info')
 
+/** 按当前页签拉取对应列表；抢单及状态变更后都会重查刷新 */
 async function loadData() {
   if (tab.value === 'pending') {
     const res = await getPendingOrders()
@@ -100,18 +108,21 @@ async function loadData() {
   }
 }
 
+/** 抢单后工单移入"我的工单"，直接整体刷新列表 */
 async function handleAccept(id) {
   await acceptOrder(id)
   ElMessage.success('抢单成功！')
   loadData()
 }
 
+/** 确认取货：状态 1-待取货 推进到 2-配送中；第二参数为取货凭证图，暂未接入传空串 */
 async function handlePickup(id) {
   await pickupGoods(id, '')
   ElMessage.success('已确认取货')
   loadData()
 }
 
+/** 确认送达：状态 2-配送中 推进到 3-已送达，工单结束 */
 async function handleDeliver(id) {
   await deliverGoods(id, '')
   ElMessage.success('已确认送达')

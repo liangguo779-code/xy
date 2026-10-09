@@ -5,6 +5,7 @@
     </el-page-header>
 
     <el-card style="margin-top: 20px">
+      <!-- 订单基本信息：自提与配送共用，操作区按交易方式分流 -->
       <el-descriptions :column="2" border>
         <el-descriptions-item label="订单号">{{ order.orderNo }}</el-descriptions-item>
         <el-descriptions-item label="状态">
@@ -148,6 +149,10 @@
 </template>
 
 <script setup>
+/**
+ * 订单详情页：0-自提走卖家确认加核销流程，1-配送走骑手配送流程
+ * 状态约定：0-待卖家确认 1-待核销 3-已完成 4-已取消；配送侧 5-协商跑腿费 6-待派单 7-待取货 8-配送中 9-待确认收货
+ */
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -165,12 +170,15 @@ const verifyCode = ref('')
 const showReview = ref(false)
 const reviewed = ref(false)
 const submittingReview = ref(false)
+/** 评价可选标签为固定文案，提交时 tags 序列化为 JSON 字符串 */
 const reviewTags = ['态度好', '描述准确', '发货快', '物品成色好', '沟通顺畅']
 const reviewForm = ref({ rating: 5, tags: [], content: '' })
 const deliveryTracks = ref([])
 const showDispute = ref(false)
 const submittingDispute = ref(false)
+/** 纠纷表单，evidenceImages 收集证据图 URL，提交时序列化为 JSON 字符串 */
 const disputeForm = ref({ reason: '商品与描述不符', evidence: '', evidenceImages: [] })
+/** 证据图上传需自带鉴权头，走 /api/upload/image 接口 */
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 const myReview = ref(null)
 
@@ -182,23 +190,28 @@ const canEditReview = computed(() => {
   return (now - createTime) < 24 * 60 * 60 * 1000
 })
 
+/** 物流动作映射为时间线节点颜色 */
 function trackType(action) {
   return { accept: 'primary', pickup: 'warning', deliver: 'success', location: 'info' }[action] || 'info'
 }
 
+/** 物流动作中文文案，未知动作原样展示便于排查后端新增动作 */
 function trackDesc(action) {
   return { accept: '骑手已接单', pickup: '骑手已取货', deliver: '商品已送达', location: '位置更新' }[action] || action
 }
 
+/** 切换评价标签选中态，标签随评价一并提交 */
 function toggleTag(tag) {
   const idx = reviewForm.value.tags.indexOf(tag)
   if (idx > -1) reviewForm.value.tags.splice(idx, 1)
   else reviewForm.value.tags.push(tag)
 }
 
+/** 提交评价：已有评价走更新接口，否则新建；成功后重载订单刷新评价态 */
 async function handleSubmitReview() {
   submittingReview.value = true
   try {
+    // 无标签时传 undefined，避免后端存入空 JSON 数组
     const tagsStr = reviewForm.value.tags.length > 0 ? JSON.stringify(reviewForm.value.tags) : undefined
     if (myReview.value) {
       // 编辑评价
@@ -231,6 +244,7 @@ const currentUserId = computed(() => {
   // 从 localStorage 或 store 获取
   return Number(localStorage.getItem('userId') || 0)
 })
+/** 买卖双方身份判定，控制各操作按钮是否渲染 */
 const isBuyer = computed(() => order.value?.buyerId === currentUserId.value)
 const isSeller = computed(() => order.value?.sellerId === currentUserId.value)
 const canCancel = computed(() => {
@@ -240,6 +254,7 @@ const canCancel = computed(() => {
   return s !== 3 && s !== 4 && s !== 7 && s !== 8 && s !== 9
 })
 
+/** 订单状态映射 el-tag 颜色：完成/送达绿色，取消红色，待确认与协商中橙色 */
 const statusType = (s) => {
   const map = {
     0: 'warning', 1: '', 3: 'success', 4: 'danger', 5: 'warning',
@@ -248,6 +263,7 @@ const statusType = (s) => {
   return map[s] || 'info'
 }
 
+/** 加载订单详情，并查询当前用户评价状态与配送物流轨迹 */
 async function loadOrder() {
   const res = await getOrderDetail(route.params.id)
   order.value = res.data
@@ -267,12 +283,14 @@ async function loadOrder() {
   }
 }
 
+/** 卖家确认自提订单，后端生成核销码供买家出示 */
 async function handleConfirm() {
   await confirmOrder(order.value.id)
   ElMessage.success('已确认交易，买家将收到核销码')
   loadOrder()
 }
 
+/** 卖家凭核销码核销，校验通过后订单置为 3-已完成 */
 async function handleComplete() {
   if (!verifyCode.value) {
     ElMessage.warning('请输入核销码')
@@ -283,18 +301,21 @@ async function handleComplete() {
   loadOrder()
 }
 
+/** 买家确认收货后订单完结，货款按约定线下结算 */
 async function handleConfirmReceive() {
   await confirmReceive(order.value.id)
   ElMessage.success('已确认收货')
   loadOrder()
 }
 
+/** 取消订单，仅非终态可取消，判断条件见 canCancel */
 async function handleCancel() {
   await cancelOrder(order.value.id)
   ElMessage.success('已取消')
   loadOrder()
 }
 
+/** 回填已有评价到表单，tags 从 JSON 字符串还原为数组 */
 function handleEditReview() {
   if (!myReview.value) return
   reviewForm.value = {
@@ -305,6 +326,7 @@ function handleEditReview() {
   showReview.value = true
 }
 
+/** 删除评价，24 小时内可操作，限制见 canEditReview */
 async function handleDeleteReview() {
   try {
     await ElMessageBox.confirm('确定删除此评价？', '提示', { type: 'warning' })
@@ -313,12 +335,14 @@ async function handleDeleteReview() {
     reviewed.value = false
     myReview.value = null
   } catch (e) {
+    // 用户点取消时 ElMessageBox 也会 reject，需过滤掉避免误报删除失败
     if (e !== 'cancel' && e?.message !== 'cancel') {
       ElMessage.error(e.response?.data?.message || '删除失败')
     }
   }
 }
 
+/** 与对方会话：按商品创建或复用会话后跳转聊天页 */
 async function handleContact() {
   const params = { goodsId: order.value.goodsId }
   // 卖家联系买家时，指定对方用户ID
@@ -329,21 +353,25 @@ async function handleContact() {
   router.push(`/chat/${res.data.id}`)
 }
 
+/** 上传成功回调，按后端约定从 res.data.url 取图片地址 */
 function handleDisputeUploadSuccess(res) {
   if (res.code === 200) disputeForm.value.evidenceImages.push(res.data.url)
 }
 
+/** 移除证据图时同步剔除 URL，兼容已上传与回显两种文件对象 */
 function handleDisputeUploadRemove(file) {
   const url = file.response?.data?.url || file.url
   const idx = disputeForm.value.evidenceImages.indexOf(url)
   if (idx > -1) disputeForm.value.evidenceImages.splice(idx, 1)
 }
 
+/** 提交纠纷，原因为预设项与补充说明的拼接，证据图序列化为 JSON 提交 */
 async function handleSubmitDispute() {
   submittingDispute.value = true
   try {
     await createDispute({
       orderId: order.value.id,
+      // 后端 reason 为单字段，补充说明拼接在预设原因之后
       reason: disputeForm.value.reason + (disputeForm.value.evidence ? '：' + disputeForm.value.evidence : ''),
       evidenceImages: disputeForm.value.evidenceImages.length > 0
         ? JSON.stringify(disputeForm.value.evidenceImages) : undefined

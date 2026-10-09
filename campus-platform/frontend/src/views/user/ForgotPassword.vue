@@ -88,12 +88,15 @@
 </template>
 
 <script setup>
+/** 找回密码页：三步流程，先用邮箱验证码验身，再设置新密码，最后展示结果 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getCaptcha, sendResetCode, resetPassword } from '@/api/auth'
+import { validatePasswordStrength } from '@/utils/password'
 
 const router = useRouter()
+/** 当前步骤：0 验证邮箱身份、1 设置新密码、2 重置完成 */
 const step = ref(0)
 const countdown = ref(0)
 const sendingCode = ref(false)
@@ -101,11 +104,13 @@ const submitting = ref(false)
 const step1Ref = ref()
 const step2Ref = ref()
 
+// focused 仅用于驱动浮动标签样式，不参与表单校验
 const emailFocused = ref(false)
 const codeFocused = ref(false)
 const newPwdFocused = ref(false)
 const confirmPwdFocused = ref(false)
 
+// captchaId 与计算结果一并提交，供后端比对是否通过人机验证
 const captchaId = ref('')
 const captchaImage = ref('')
 
@@ -117,6 +122,7 @@ const form = ref({
   confirmPassword: ''
 })
 
+/** 第一步校验：邮箱格式与验证码必填；验证码真伪留到重置接口由后端核验 */
 const step1Rules = {
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -125,10 +131,11 @@ const step1Rules = {
   code: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
 }
 
+/** 第二步校验：新密码 8-20 位且含大写/小写/数字/特殊字符中至少三类，确认密码需与新密码一致 */
 const step2Rules = {
   newPassword: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度6-20位', trigger: 'blur' }
+    { validator: validatePasswordStrength, trigger: 'blur' }
   ],
   confirmPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
@@ -145,6 +152,7 @@ const step2Rules = {
   ]
 }
 
+/** 拉取算术验证码图片，提交时需同时携带 captchaId 与计算结果供后端比对 */
 async function refreshCaptcha() {
   try {
     const res = await getCaptcha()
@@ -156,6 +164,7 @@ async function refreshCaptcha() {
   }
 }
 
+/** 发送邮箱验证码：邮箱与人机验证通过后才发码，成功后进入 60 秒冷却 */
 async function handleSendCode() {
   try { await step1Ref.value.validateField('email') } catch { return }
   if (!form.value.captchaAnswer) {
@@ -176,17 +185,20 @@ async function handleSendCode() {
       if (countdown.value <= 0) clearInterval(timer)
     }, 1000)
   } catch (e) {
+    // 发送失败多半是人机验证答案有误，换一张验证码图再试
     refreshCaptcha()
   } finally {
     sendingCode.value = false
   }
 }
 
+/** 第一步本地校验通过后进入设置新密码；此处不核验验证码真伪，统一交给重置接口 */
 async function handleNext() {
   await step1Ref.value.validate()
   step.value = 1
 }
 
+/** 提交新密码，后端核验邮箱验证码后落库，成功进入完成页 */
 async function handleReset() {
   await step2Ref.value.validate()
   submitting.value = true

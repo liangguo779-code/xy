@@ -28,6 +28,7 @@ public interface IntentClassifier {
 
     Logger log = LoggerFactory.getLogger(IntentClassifier.class);
 
+    // 提示词设计：三分类 + "只输出一个词"，最小化输出便于字符串解析，降低误判成本。
     @SystemMessage("""
             你是校园事务咨询系统的意图分类器。根据用户的问题判断其意图类型。
             可选的意图:
@@ -38,6 +39,7 @@ public interface IntentClassifier {
     @UserMessage("用户: {{question}}")
     String classifyRaw(@V("question") String question);
 
+    /** 分类并容错解析：LLM 输出异常或调用失败时兜底返回 rag，保证用户仍能得到回答。 */
     default String classify(String question) {
         try {
             String raw = classifyRaw(question).trim().toLowerCase();

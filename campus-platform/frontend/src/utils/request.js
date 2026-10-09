@@ -2,6 +2,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 
+/** 全局 axios 实例：统一携带 token、解析后端 { code, msg, data } 包装并弹出错误提示 */
 const request = axios.create({
   baseURL: '',
   timeout: 10000
@@ -30,11 +31,16 @@ request.interceptors.response.use(
         localStorage.removeItem('token')
         router.push('/login')
       }
-      return Promise.reject(new Error(res.msg))
+      // 把业务码挂到 Error 上，调用方可按 code 分支处理（如登录 428 弹图形验证码）
+      const err = new Error(res.msg)
+      err.code = res.code
+      return Promise.reject(err)
     }
+    // 直接返回包体而非 response，业务代码因此用 res.data 取数据
     return res
   },
   error => {
+    // HTTP 层 401（如令牌过期被拒绝）与业务码 401 一样清登录态并跳登录页
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       router.push('/login')

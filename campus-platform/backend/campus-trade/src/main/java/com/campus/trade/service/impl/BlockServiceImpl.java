@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 
+/** 用户拉黑服务实现，基于 user_block 表维护拉黑关系 */
 @Service
 @RequiredArgsConstructor
 public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements BlockService {
@@ -25,6 +26,7 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
     private final BlockMapper blockMapper;
     private final UserMapper userMapper;
 
+    /** 拉黑用户，禁止拉黑自己，重复拉黑会被拒绝 */
     @Override
     @Transactional
     public void blockUser(Long userId, Long blockedUserId) {
@@ -44,6 +46,7 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
         blockMapper.insert(block);
     }
 
+    /** 取消拉黑，不存在该记录时静默成功 */
     @Override
     @Transactional
     public void unblockUser(Long userId, Long blockedUserId) {
@@ -53,6 +56,7 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
                         .eq(Block::getBlockedUserId, blockedUserId));
     }
 
+    /** 判断 targetUserId 是否已被 userId 拉黑 */
     @Override
     public boolean isBlocked(Long userId, Long targetUserId) {
         return blockMapper.selectCount(
@@ -61,6 +65,7 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
                         .eq(Block::getBlockedUserId, targetUserId)) > 0;
     }
 
+    /** 判断 userId 是否被 targetUserId 拉黑（对方是否拉黑了我） */
     @Override
     public boolean isBlockedBy(Long userId, Long targetUserId) {
         return blockMapper.selectCount(
@@ -69,6 +74,7 @@ public class BlockServiceImpl extends ServiceImpl<BlockMapper, Block> implements
                         .eq(Block::getBlockedUserId, userId)) > 0;
     }
 
+    /** 分页查询我的拉黑列表，按拉黑时间倒序并回填被拉黑用户信息 */
     @Override
     public Page<UserVO> getBlockList(Long userId, int page, int size) {
         Page<Block> blockPage = blockMapper.selectPage(

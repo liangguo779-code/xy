@@ -2,6 +2,7 @@ package com.campus.trade.enums;
 
 import lombok.Getter;
 
+/** 订单状态枚举，code 为库中存储值；自提与配送走不同状态分支，3/4 为两种流程共用的终态 */
 @Getter
 public enum OrderStatus {
 
@@ -28,6 +29,7 @@ public enum OrderStatus {
         this.desc = desc;
     }
 
+    /** 按库中 code 反查枚举 */
     public static OrderStatus fromCode(int code) {
         for (OrderStatus s : values()) {
             if (s.code == code) return s;

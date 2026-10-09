@@ -1,5 +1,6 @@
 package com.campus.ai.assistant;
 
+import com.campus.ai.retrieval.SynonymExpander;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -54,14 +55,23 @@ public class QueryRewriter {
     }
 
     private final LlmRewriter llmRewriter;
+    /** 规则同义扩展器：短查询跳过 LLM 时用于生成同义变体检索词。 */
+    private final SynonymExpander synonymExpander;
 
+    /**
+     * 生成检索词列表：首元素保证是原始问题，其后为改写/扩展出的检索词。
+     * 短问题（≤30 字）跳过 LLM 改写（LLM 扩展会稀释精确查询、引入噪声），
+     * 改做规则同义扩展；LLM 失败时退回原问题。
+     */
     public List<String> rewrite(String question, List<ChatMessage> history) {
         if (question == null || question.isBlank()) return List.of();
-        // 对于简短、明确的问题（< 30 字），跳过改写。
+        // 对于简短、明确的问题（≤ 30 字），跳过 LLM 改写。
         // LLM 改写经常会稀释精确查询（如"休学怎么办理"），加入无关扩展词，
-        // 反而引入噪声 BM25 结果。
+        // 反而引入噪声 BM25 结果。但完全不扩展会让"学分认定""挂科重修流程"
+        // 这类口语短查询落入纯词面匹配，撞不上手册用词（学分转换/重学/不及格），
+        // 因此退化为规则同义扩展：零延迟、零无关词。
         if (question.length() <= 30) {
-            return List.of(question);
+            return synonymExpander.expand(question);
         }
         try {
             String userContent = "Q: " + question;

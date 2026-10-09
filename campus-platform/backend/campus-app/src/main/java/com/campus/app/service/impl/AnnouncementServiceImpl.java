@@ -8,6 +8,7 @@ import com.campus.app.mapper.AnnouncementMapper;
 import com.campus.app.service.AnnouncementService;
 import org.springframework.stereotype.Service;
 
+/** 公告管理服务实现，基于 MyBatis-Plus 完成公告的增删改查 */
 @Service
 public class AnnouncementServiceImpl extends ServiceImpl<AnnouncementMapper, Announcement> implements AnnouncementService {
 

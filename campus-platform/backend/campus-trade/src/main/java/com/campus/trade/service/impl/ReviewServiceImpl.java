@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/** 评价服务实现，覆盖评价的发表/修改/删除、申诉与回复 */
 @Service
 @RequiredArgsConstructor
 public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> implements ReviewService {
@@ -25,6 +26,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
     private final ReviewMapper reviewMapper;
     private final OrderMapper orderMapper;
 
+    /** 发表评价：仅已完成订单的买卖双方可评，且每人每单限评一次 */
     @Override
     @Transactional
     public void createReview(Long reviewerId, CreateReviewReq req) {
@@ -63,6 +65,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         save(review);
     }
 
+    /** 修改自己的评价，仅发布后 24 小时内可改 */
     @Override
     @Transactional
     public void updateReview(Long reviewerId, Long reviewId, CreateReviewReq req) {
@@ -73,6 +76,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         if (!review.getReviewerId().equals(reviewerId)) {
             throw new BusinessException(403, "无权修改此评价");
         }
+        // 超过 24 小时不允许修改，保证评价可信度
         if (review.getCreateTime().plusHours(24).isBefore(LocalDateTime.now())) {
             throw new BusinessException("评价已超过24小时，无法修改");
         }
@@ -82,6 +86,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         reviewMapper.updateById(review);
     }
 
+    /** 删除自己的评价，仅发布后 24 小时内可删 */
     @Override
     @Transactional
     public void deleteReview(Long reviewerId, Long reviewId) {
@@ -92,12 +97,14 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         if (!review.getReviewerId().equals(reviewerId)) {
             throw new BusinessException(403, "无权删除此评价");
         }
+        // 与修改一致，超过 24 小时不允许删除
         if (review.getCreateTime().plusHours(24).isBefore(LocalDateTime.now())) {
             throw new BusinessException("评价已超过24小时，无法删除");
         }
         reviewMapper.deleteById(reviewId);
     }
 
+    /** 查询某用户收到的正常状态评价，按时间倒序 */
     @Override
     public List<Review> getReviewsForUser(Long targetId) {
         return list(new LambdaQueryWrapper<Review>()
@@ -106,12 +113,14 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
                 .orderByDesc(Review::getCreateTime));
     }
 
+    /** 查询某订单下的全部评价 */
     @Override
     public List<Review> getReviewsByOrder(Long orderId) {
         return list(new LambdaQueryWrapper<Review>()
                 .eq(Review::getOrderId, orderId));
     }
 
+    /** 计算用户平均评分，无评价时返回 null */
     @Override
     public Double getAverageRating(Long userId) {
         List<Review> reviews = getReviewsForUser(userId);
@@ -122,6 +131,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
                 .orElse(0.0);
     }
 
+    /** 被评价者对评价发起申诉，仅允许一次且状态置为申诉中 */
     @Override
     @Transactional
     public void appealReview(Long userId, Long reviewId, String reason) {
@@ -141,6 +151,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         reviewMapper.updateById(review);
     }
 
+    /** 被评价者回复评价，每条评价仅可回复一次 */
     @Override
     @Transactional
     public void replyReview(Long userId, Long reviewId, String reply) {
@@ -159,6 +170,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         reviewMapper.updateById(review);
     }
 
+    /** 分页查询我收到的评价（仅正常状态） */
     @Override
     public Page<Review> getMyReceivedReviews(Long userId, Integer status, int page, int size) {
         LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<Review>()
@@ -168,6 +180,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 分页查询我发出的评价 */
     @Override
     public Page<Review> getMyGivenReviews(Long userId, int page, int size) {
         LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<Review>()

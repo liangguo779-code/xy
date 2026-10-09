@@ -20,8 +20,10 @@ import java.util.concurrent.Future;
 public class IngestionQueue {
 
     private final com.campus.ai.config.AiProperties props;
+    /** 入库线程池；守护线程，JVM 退出时不阻塞。 */
     private ExecutorService executor;
 
+    /** 按配置的并发数创建线程池（最小 1）。 */
     @PostConstruct
     void init() {
         int n = Math.max(1, props.getRebuild().getMaxConcurrent());
@@ -33,10 +35,12 @@ public class IngestionQueue {
         log.info("IngestionQueue started with {} thread(s)", n);
     }
 
+    /** 提交入库任务，返回 Future 供调用方（可选）追踪完成情况。 */
     public Future<?> submit(Runnable task) {
         return executor.submit(task);
     }
 
+    /** 应用关闭时停止接收新任务。 */
     @PreDestroy
     void shutdown() {
         if (executor != null) {

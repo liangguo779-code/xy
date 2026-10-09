@@ -5,6 +5,7 @@
       <el-empty description="暂无聊天记录，去商品详情页点击[我想要]开始聊天吧" />
     </div>
     <div v-else>
+      <!-- 会话列表：点击整行进入聊天室，未读角标由后端按会话聚合 -->
       <div v-for="s in sessions" :key="s.id" class="session-item"
            @click="router.push(`/chat/${s.id}`)">
         <div class="session-avatars">
@@ -16,26 +17,33 @@
           <div class="top-row">
             <span class="name">{{ s.otherNickname }}</span>
             <span class="time">{{ formatTime(s.lastTime) }}</span>
+            <!-- 未读角标固定在条目右上角（时间右侧） -->
+            <el-badge v-if="s.unreadCount > 0" :value="s.unreadCount" :max="99" class="unread-badge" />
           </div>
           <div class="bottom-row">
             <span class="goods-tag" v-if="s.goodsTitle">{{ s.goodsTitle }}</span>
             <span class="last-msg">{{ s.lastMsg }}</span>
           </div>
         </div>
-        <el-badge v-if="s.unreadCount > 0" :value="s.unreadCount" :max="99" class="unread-badge" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
+/**
+ * 我的消息：会话列表页
+ * 汇总与各买家/卖家的聊天会话（含关联商品、最后一条消息、未读数），点击进入聊天室
+ */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMySessions } from '@/api/chat'
 
 const router = useRouter()
+/** 会话列表，字段含 otherNickname/goodsTitle/goodsImage/lastMsg/unreadCount 等 */
 const sessions = ref([])
 
+/** 会话时间显示：当天只显时分，更早的显示月日，避免列表时间列过长 */
 function formatTime(time) {
   if (!time) return ''
   const d = new Date(time)
@@ -94,7 +102,7 @@ onMounted(async () => {
 
 .top-row {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   margin-bottom: 6px;
 }
 
@@ -104,6 +112,7 @@ onMounted(async () => {
 }
 
 .time {
+  margin-left: auto;
   font-size: 12px;
   color: #C9CDD4;
 }
@@ -128,8 +137,9 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+/* 未读角标：紧贴时间右侧，固定在条目右上角 */
 .unread-badge {
   flex-shrink: 0;
-  align-self: center;
+  margin-left: 8px;
 }
 </style>

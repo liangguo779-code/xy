@@ -25,6 +25,7 @@ public class AiHealthController {
     private final VectorStoreFacade vectorStore;
     private final Bm25Index bm25;
 
+    /** 汇总 LLM/向量库/BM25/知识目录的配置与规模信息，供运维快速核对环境。 */
     @GetMapping("/health")
     public R<Map<String, Object>> health() {
         Map<String, Object> body = new LinkedHashMap<>();

@@ -6,6 +6,7 @@
         <p>使用你的校园平台账号</p>
       </div>
 
+      <!-- 表单区：floating-label 借助 active（有值）与 focused（聚焦）两个类让 label 上浮 -->
       <el-form ref="formRef" :model="form" :rules="rules" label-width="0" @submit.prevent="handleLogin">
         <div class="floating-label" :class="{ active: form.username, focused: usernameFocused }">
           <label>邮箱</label>
@@ -23,7 +24,16 @@
           />
         </div>
 
+        <!-- 图形验证码：连续登录失败后由后端要求展示（428），防暴力破解 -->
+        <div v-if="showCaptcha" class="captcha-row">
+          <el-input v-model="form.captchaAnswer" size="large" placeholder="计算结果" class="captcha-input" />
+          <img v-if="captchaImage" :src="captchaImage" class="captcha-img" alt="验证码" title="点击刷新"
+               @click="loadCaptcha" />
+          <el-button size="large" @click="loadCaptcha">刷新</el-button>
+        </div>
+
         <div class="form-links">
+          <el-checkbox v-model="form.rememberMe">记住我（30 天免登录）</el-checkbox>
           <router-link to="/forgot-password">忘记密码？</router-link>
         </div>
 
@@ -40,33 +50,67 @@
 </template>
 
 <script setup>
+/** 登录页：邮箱 + 密码登录，成功后由 user store 缓存 token 并跳转首页；
+ *  连续失败后后端要求图形验证码（业务码 428），本页按需展示并随表单提交 */
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { getCaptcha } from '@/api/auth'
 
 const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
-const form = ref({ username: '', password: '' })
+// username 字段实际填写邮箱，与后端登录接口的参数约定一致
+const form = ref({ username: '', password: '', captchaAnswer: '', rememberMe: false })
+// focused 仅用于驱动浮动标签样式，不参与表单校验
 const usernameFocused = ref(false)
 const passwordFocused = ref(false)
+// 图形验证码状态：showCaptcha 由后端 428 触发，captchaId/image 随登录请求提交
+const showCaptcha = ref(false)
+const captchaId = ref('')
+const captchaImage = ref('')
 
+/** 校验规则：只做必填检查，邮箱格式与账密正确性由后端判定 */
 const rules = {
   username: [{ required: true, message: '请输入邮箱', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
+/** 拉取图形验证码并展示 */
+async function loadCaptcha() {
+  try {
+    const res = await getCaptcha()
+    captchaId.value = res.data.captchaId
+    captchaImage.value = `data:image/png;base64,${res.data.imageBase64}`
+    form.value.captchaAnswer = ''
+  } catch { /* 拦截器已提示 */ }
+}
+
+/** 提交登录并缓存 token，成功后跳转首页 */
+// 失败提示由请求拦截器统一弹出；428 表示需完成图形验证码，弹出验证码区重试
 async function handleLogin() {
   await formRef.value.validate()
   loading.value = true
   try {
-    await userStore.login(form.value)
+    const payload = {
+      username: form.value.username,
+      password: form.value.password,
+      rememberMe: form.value.rememberMe
+    }
+    if (showCaptcha.value && captchaId.value) {
+      payload.captchaId = captchaId.value
+      payload.captchaAnswer = form.value.captchaAnswer
+    }
+    await userStore.login(payload)
     ElMessage.success('登录成功')
     router.push('/')
   } catch (e) {
-    // handled
+    if (e?.code === 428) {
+      showCaptcha.value = true
+      loadCaptcha()
+    }
   } finally {
     loading.value = false
   }
@@ -154,6 +198,23 @@ async function handleLogin() {
 .floating-label :deep(.el-input__inner) {
   font-size: 14px;
   height: 22px;
+}
+
+.captcha-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-img {
+  height: 40px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid #e5e6eb;
 }
 
 .form-links {

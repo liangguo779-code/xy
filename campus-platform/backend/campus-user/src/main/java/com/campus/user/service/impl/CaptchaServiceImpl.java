@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+/** 数学计算验证码实现：答案存 Redis、图片内存生成，一次有效防重放 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -24,9 +25,12 @@ public class CaptchaServiceImpl implements CaptchaService {
 
     private final StringRedisTemplate redisTemplate;
 
+    /** 验证码答案的 Redis key 前缀，完整 key 为前缀 + captchaId */
     private static final String CAPTCHA_KEY = "captcha:";
+    /** 验证码有效期（分钟） */
     private static final int CAPTCHA_EXPIRE_MINUTES = 5;
 
+    /** 生成一道 1-20 之间数字的加减乘算式，返回验证码 ID 与图片（Base64 data URI） */
     @Override
     public Map<String, String> generate() {
         Random random = new Random();
@@ -62,6 +66,7 @@ public class CaptchaServiceImpl implements CaptchaService {
         return result;
     }
 
+    /** 校验答案，无论对错都立即删除缓存，保证单次有效 */
     @Override
     public boolean verify(String captchaId, String answer) {
         if (captchaId == null || answer == null) return false;
@@ -74,6 +79,7 @@ public class CaptchaServiceImpl implements CaptchaService {
         return cached.equals(answer.trim());
     }
 
+    /** 将算式绘制成验证码图片（干扰线/干扰点/字符扰动防机器识别），返回 Base64 data URI */
     private String generateImage(String expression) {
         int width = 160, height = 50;
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);

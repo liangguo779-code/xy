@@ -28,6 +28,7 @@ import java.util.Locale;
 @Component
 public class DocumentConverter {
 
+    /** 按后缀分派转换：md/txt 原样读取，pdf/docx 转 Markdown，其余类型报错。 */
     public String toMarkdown(Path file) throws IOException {
         String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".md") || name.endsWith(".txt")) {

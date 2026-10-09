@@ -12,12 +12,14 @@ import com.campus.trade.service.DisputeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/** 交易纠纷服务实现，覆盖纠纷发起与平台裁决 */
 @Service
 @RequiredArgsConstructor
 public class DisputeServiceImpl extends ServiceImpl<DisputeMapper, Dispute> implements DisputeService {
 
     private final OrderMapper orderMapper;
 
+    /** 发起纠纷：仅订单买卖双方可发起，且同一发起人不能有进行中的纠纷 */
     @Override
     public void createDispute(Long reporterId, Long orderId, String reason, String evidenceImages) {
         // 校验申请人是否为该订单的买家或卖家
@@ -46,6 +48,7 @@ public class DisputeServiceImpl extends ServiceImpl<DisputeMapper, Dispute> impl
         save(dispute);
     }
 
+    /** 分页查询我发起的纠纷，按创建时间倒序 */
     @Override
     public Page<Dispute> listMyDisputes(Long userId, Integer status, int page, int size) {
         LambdaQueryWrapper<Dispute> wrapper = new LambdaQueryWrapper<Dispute>()
@@ -55,6 +58,7 @@ public class DisputeServiceImpl extends ServiceImpl<DisputeMapper, Dispute> impl
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 分页查询纠纷列表（管理端），按创建时间倒序 */
     @Override
     public Page<Dispute> listDisputes(Integer status, int page, int size) {
         LambdaQueryWrapper<Dispute> wrapper = new LambdaQueryWrapper<>();
@@ -63,6 +67,7 @@ public class DisputeServiceImpl extends ServiceImpl<DisputeMapper, Dispute> impl
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 裁决纠纷，终态（已解决/已驳回）不可再次处理 */
     @Override
     public void resolveDispute(Long disputeId, Long handlerId, String result, int status) {
         Dispute dispute = getById(disputeId);

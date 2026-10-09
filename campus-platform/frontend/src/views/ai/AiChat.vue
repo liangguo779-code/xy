@@ -23,6 +23,7 @@
     <!-- 主聊天区 -->
     <div class="main-area">
       <el-card class="chat-card">
+        <!-- 消息流：用户消息纯文本，AI 消息走 Markdown 渲染，附 token 用量与 RAG 参考来源 -->
         <div class="messages" ref="messagesRef">
           <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
             <div class="avatar">
@@ -75,6 +76,7 @@
           </div>
         </div>
 
+        <!-- 输入区：回车或按钮发送；生成中切换为取消按钮以中止流式请求 -->
         <div class="input-area">
           <el-input v-model="input" placeholder="输入你的问题，例如：挂科怎么重修？"
                     @keyup.enter="handleSend" :disabled="loading" size="large">
@@ -90,6 +92,10 @@
 </template>
 
 <script setup>
+/**
+ * AI 智能问答助手：SSE 流式输出（打字机效果）加 Markdown 代码高亮渲染、RAG 参考来源展示，
+ * 支持历史会话的恢复/切换/删除，并可随时中止生成
+ */
 import { ref, reactive, nextTick, onMounted } from 'vue'
 import { User, MagicStick, Loading, Document, ArrowDown, Plus, Delete } from '@element-plus/icons-vue'
 import { marked } from 'marked'
@@ -128,31 +134,36 @@ marked.setOptions({ renderer, breaks: true })
 
 const input = ref('')
 const loading = ref(false)
+/** 消息列表：role 为 user/assistant；assistant 的 stage 承载流式阶段文案，sources 为 RAG 引用 */
 const messages = ref([])
 const messagesRef = ref()
 let abortController = null  // For cancelling in-flight SSE streams
 
+/** 历史会话列表与当前会话 id：为 null 表示新会话，首个问题发出后由后端分配 */
 const sessions = ref([])
 const currentSessionId = ref(null)
 
+/** 空会话时展示的推荐问题，点击等价于填入输入框并发送 */
 const suggestedQuestions = [
   '休学怎么办理？',
   '奖学金怎么申请？',
   '挂科了怎么重修？',
-  '校园卡丢了怎么补办？',
 ]
 
+/** 点击推荐问题：填入输入框并立即发送 */
 function handleSuggested(question) {
   input.value = question
   handleSend()
 }
 
+/** Markdown 渲染：marked 解析后必须过 DOMPurify，防止 LLM 输出的 HTML 注入 XSS */
 function renderMarkdown(text) {
   if (!text) return ''
   // Sanitize with DOMPurify to prevent XSS from LLM-generated HTML
   return DOMPurify.sanitize(marked.parse(text))
 }
 
+/** 解析参考来源：后端可能给 JSON 字符串或数组，统一补 expanded 展开标记 */
 function parseSources(sources) {
   if (!sources) return []
   if (typeof sources === 'string') {
@@ -161,6 +172,7 @@ function parseSources(sources) {
   return sources.map(s => ({ ...s, expanded: true }))
 }
 
+/** 滚动到底部：nextTick 等 DOM 更新完才能拿到新的 scrollHeight */
 function scrollToBottom() {
   nextTick(() => {
     if (messagesRef.value) {
@@ -169,6 +181,7 @@ function scrollToBottom() {
   })
 }
 
+/** 刷新左侧历史会话列表（新建/删除会话后都会调用） */
 async function loadSessions() {
   try {
     const res = await getSessions()
@@ -179,6 +192,7 @@ async function loadSessions() {
   }
 }
 
+/** 恢复上次会话：优先 localStorage 的 lastSessionId，未命中则取最近更新的一条 */
 async function loadLastSession() {
   // 优先恢复上次选中的会话
   const lastId = localStorage.getItem('lastSessionId')
@@ -203,6 +217,7 @@ async function loadLastSession() {
   }
 }
 
+/** 切换会话：拉取历史消息并缓存 lastSessionId，历史 sources 默认折叠 */
 async function loadSession(sessionId) {
   currentSessionId.value = sessionId
   localStorage.setItem('lastSessionId', String(sessionId))
@@ -220,12 +235,14 @@ async function loadSession(sessionId) {
   }
 }
 
+/** 开新对话：清空本地消息与 lastSessionId，下一次发送时由后端创建新会话 */
 function handleNewSession() {
   currentSessionId.value = null
   messages.value = []
   localStorage.removeItem('lastSessionId')
 }
 
+/** 删除会话需确认；删的是当前会话时同步清空聊天窗口 */
 async function handleDeleteSession(sessionId) {
   try {
     await ElMessageBox.confirm('确定删除此会话？', '提示', { type: 'warning' })
@@ -240,6 +257,7 @@ async function handleDeleteSession(sessionId) {
   } catch (e) { /* cancelled */ }
 }
 
+/** 发送问题：SSE 流式接收 token/来源/阶段文案/会话 id，首问的 sessionId 由后端分配 */
 async function handleSend() {
   const question = input.value.trim()
   if (!question || loading.value) return
@@ -297,6 +315,7 @@ async function handleSend() {
       }
     )
   } catch (e) {
+    // 用户主动取消时在已生成内容后追加标记；其余异常整体替换为兜底文案
     if (e.name === 'AbortError') {
       assistantMsg.content += '\n\n*（已取消）*'
     } else {
@@ -309,12 +328,14 @@ async function handleSend() {
   }
 }
 
+/** 中止进行中的 SSE 请求，触发 AbortError 分支 */
 function handleCancel() {
   if (abortController) {
     abortController.abort()
   }
 }
 
+/** 先加载会话列表，才能按 lastSessionId 恢复历史会话 */
 onMounted(async () => {
   await loadSessions()
   await loadLastSession()
@@ -463,6 +484,7 @@ onMounted(async () => {
 .message.user .bubble { background: #409eff; color: white; }
 
 /* Markdown */
+/* v-html 渲染的子节点不带 scoped 属性，必须用 :deep() 穿透才能设置 Markdown 排版 */
 .markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3) { margin: 12px 0 8px; font-weight: 600; }
 .markdown-body :deep(h1) { font-size: 18px; }
 .markdown-body :deep(h2) { font-size: 16px; }

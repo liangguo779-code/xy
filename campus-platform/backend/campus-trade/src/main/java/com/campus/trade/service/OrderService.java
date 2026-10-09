@@ -9,6 +9,7 @@ import com.campus.trade.entity.Order;
 
 import java.util.List;
 
+/** 订单服务，驱动自提/配送两条交易流程的状态机流转与评价 */
 public interface OrderService extends IService<Order> {
 
     /**

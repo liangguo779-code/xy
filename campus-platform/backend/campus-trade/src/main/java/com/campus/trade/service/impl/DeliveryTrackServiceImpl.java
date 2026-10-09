@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.List;
 
+/** 配送轨迹服务实现，仅交付员本人可上报，轨迹对交易参与方可见 */
 @Service
 @RequiredArgsConstructor
 public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, DeliveryTrack> implements DeliveryTrackService {
@@ -27,6 +28,7 @@ public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, D
     private final OrderMapper orderMapper;
     private final UserMapper userMapper;
 
+    /** 添加轨迹记录，仅该工单的交付员可上报 */
     @Override
     public void addTrack(Long deliveryId, Long runnerId, String action,
                          BigDecimal lat, BigDecimal lng, String address, String photoUrl) {
@@ -50,6 +52,7 @@ public class DeliveryTrackServiceImpl extends ServiceImpl<DeliveryTrackMapper, D
         save(track);
     }
 
+    /** 按时间升序返回工单轨迹，买家/卖家/交付员/管理员可见 */
     @Override
     public List<DeliveryTrack> getTracks(Long deliveryId, Long userId) {
         // 校验权限：只有买家、卖家、交付员、管理员可以查看轨迹

@@ -23,6 +23,11 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+/**
+ * 疯狂星期四活动服务实现。
+ * 活动规则：每周四 11:00-12:00 开放报名（上限 10 人），周四 12:00 系统随机抽取 1 名中奖者；
+ * 到开奖时间后查询状态会触发自动开奖，保证无人值守也能完成开奖。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -33,10 +38,14 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
     private final CrazyThursdayMapper thursdayMapper;
     private final CrazyThursdayRegistrationMapper registrationMapper;
 
+    /** 分布式锁 key，防止并发报名超卖名额 */
     private static final String LOCK_KEY = "crazy_thursday:lock";
+    /** 业务统一使用东八区时间，避免服务器时区差异导致报名/开奖时间错位 */
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+    /** 每周活动名额上限 */
     private static final int MAX_SLOTS = 10;
 
+    /** 查询本周活动状态（倒计时、报名情况、中奖信息），必要时自动触发开奖 */
     @Override
     public Map<String, Object> getStatus(Long userId) {
         Map<String, Object> result = new HashMap<>();
@@ -65,7 +74,7 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
                 .anyMatch(r -> r.getUserId().equals(userId));
 
         // 如果到开奖时间但还没开奖，自动开奖
-        if (isAfterDraw && activity != null && activity.getStatus() == 0) {
+        if (isAfterDraw && activity != null && activity.getStatus() == 0) { // status=0 报名中
             drawInternal(weekKey, activity, registrations);
             activity = getOne(new LambdaQueryWrapper<CrazyThursday>()
                     .eq(CrazyThursday::getWeekKey, weekKey));
@@ -98,6 +107,7 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
         return result;
     }
 
+    /** 报名本周活动，限每周四 11:00-12:00 且每人一次，加分布式锁防止名额超卖 */
     @Override
     @Transactional
     public Map<String, Object> register(Long userId) {
@@ -120,6 +130,7 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
 
         RLock lock = redisson.getLock(LOCK_KEY);
         try {
+            // 抢锁最多等 3 秒，持有 10 秒自动释放，避免持锁线程崩溃导致死锁
             if (!lock.tryLock(3, 10, TimeUnit.SECONDS)) {
                 throw new RuntimeException("系统繁忙，请稍后再试");
             }
@@ -164,6 +175,7 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
         }
     }
 
+    /** 手动触发本周开奖（活动不存在或已开奖时抛出异常） */
     @Override
     public Map<String, Object> draw() {
         LocalDateTime now = LocalDateTime.now(ZONE);
@@ -182,12 +194,16 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
         return drawInternal(weekKey, activity, registrations);
     }
 
+    /**
+     * 执行开奖的核心逻辑：无人报名则标记活动结束并顺延奖品，
+     * 否则从报名列表中随机抽取 1 名中奖者并落库
+     */
     private Map<String, Object> drawInternal(String weekKey, CrazyThursday activity,
                                               List<CrazyThursdayRegistration> registrations) {
         Map<String, Object> result = new HashMap<>();
 
         if (registrations.isEmpty()) {
-            activity.setStatus(1);
+            activity.setStatus(1); // status=1 已开奖
             activity.setDrawTime(LocalDateTime.now(ZONE));
             thursdayMapper.updateById(activity);
             result.put("success", false);
@@ -195,6 +211,7 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
             return result;
         }
 
+        // 从全部报名记录中等概率随机抽取中奖者
         Random random = new Random();
         int winnerIndex = random.nextInt(registrations.size());
         CrazyThursdayRegistration winner = registrations.get(winnerIndex);
@@ -219,11 +236,13 @@ public class CrazyThursdayServiceImpl extends ServiceImpl<CrazyThursdayMapper, C
         return result;
     }
 
+    /** 生成周标识，格式为 年份-W周数（如 2026-W23），作为每周活动的唯一键 */
     private String getWeekKey(LocalDateTime dateTime) {
         return dateTime.format(DateTimeFormatter.ofPattern("YYYY")) + "-W"
                 + dateTime.format(DateTimeFormatter.ofPattern("ww"));
     }
 
+    /** 计算下一次周四 11:00 的时间点；已过当日 12:00 则顺延到下周四 */
     private LocalDateTime getNextThursday11AM(LocalDateTime now) {
         LocalDateTime nextThursday = now.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY))
                 .withHour(11).withMinute(0).withSecond(0).withNano(0);

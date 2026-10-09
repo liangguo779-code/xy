@@ -1,5 +1,6 @@
 <template>
   <el-container class="layout-container">
+    <!-- 顶部导航：logo、主菜单、通知铃铛与用户下拉 -->
     <el-header class="header">
       <div class="logo" @click="router.push('/')">
         <span class="logo-icon">🎓</span>
@@ -41,6 +42,7 @@
           <span>派单大厅</span>
         </el-menu-item>
       </el-menu>
+      <!-- 通知入口与用户下拉菜单，登录后才展示用户信息 -->
       <div class="user-area">
         <div class="notif-btn" @click="router.push('/notifications')">
           <el-badge v-if="notifCount > 0" :value="notifCount" :max="99">
@@ -77,10 +79,15 @@
       <router-view />
     </el-main>
   </el-container>
+  <!-- 移动端底部标签栏，桌面端由样式隐藏 -->
   <MobileTabBar class="mobile-only" />
 </template>
 
 <script setup>
+/**
+ * 前台主布局：顶部导航 + 内容区，窄屏切换为底部标签栏
+ * 维护通知未读数与聊天未读数，并在用户登录后建立 WebSocket 长连接接收消息
+ */
 import MobileTabBar from '@/components/MobileTabBar.vue'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -92,8 +99,10 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const chatStore = useChatStore()
+/** 站内通知未读数，与聊天未读数分开统计 */
 const notifCount = ref(0)
 
+/** 聊天未读总数，状态由 chatStore 统一维护 */
 const unreadCount = computed(() => chatStore.unreadCount)
 
 // 离开通知页面时刷新未读数
@@ -101,6 +110,7 @@ watch(() => route.path, (newPath, oldPath) => {
   if (oldPath === '/notifications') loadNotifCount()
 })
 
+/** 顶部菜单高亮项：详情页等子路由按前缀归并到一级导航，保证整条链路高亮一致 */
 const activeMenu = computed(() => {
   const path = route.path
   if (path.startsWith('/goods')) return '/goods'
@@ -111,6 +121,7 @@ const activeMenu = computed(() => {
   return path
 })
 
+/** 布局挂载时初始化未读数，并为已登录用户建立 WebSocket 消息连接 */
 onMounted(() => {
   if (userStore.token && !userStore.userInfo) {
     userStore.fetchUserInfo()
@@ -118,9 +129,11 @@ onMounted(() => {
   chatStore.loadUnreadCount()
   loadNotifCount()
   const token = localStorage.getItem('token')
+  // 游客不建立长连接，避免无效握手
   if (token) chatStore.connectWebSocket(token)
 })
 
+/** 拉取通知未读数，失败静默忽略，不阻断布局渲染 */
 async function loadNotifCount() {
   try {
     const res = await getUnreadCount()
@@ -128,14 +141,18 @@ async function loadNotifCount() {
   } catch (e) { /* ignore */ }
 }
 
+/** 卸载清理；ws 并非本组件变量，连接实际由 chatStore 管理，须走 store 的断开方法
+ *（直接引用 ws 会 ReferenceError，且 chatStore 断线会自动重连，需其内部一并停掉重连） */
 onUnmounted(() => {
-  if (ws) ws.close()
+  chatStore.disconnectWebSocket()
 })
 
+/** 管理后台是独立入口，整页跳转加载管理端布局，不复用前台路由 */
 function goAdmin() {
   window.location.href = '/admin'
 }
 
+/** 退出后整页刷新，清除内存中残留的用户信息与未读数状态 */
 async function handleLogout() {
   await userStore.logout()
   router.push('/login')
@@ -181,6 +198,7 @@ async function handleLogout() {
   font-size: 26px;
 }
 
+/* 渐变文字：背景裁剪到文字并以透明填充色露出渐变 */
 .logo-text {
   font-size: 18px;
   font-weight: 700;
@@ -298,6 +316,7 @@ async function handleLogout() {
   display: none;
 }
 
+/* 移动端适配：隐藏顶部菜单改用底部标签栏，内容区预留标签栏高度避免遮挡 */
 @media (max-width: 768px) {
   .header {
     padding: 0 12px;

@@ -21,6 +21,7 @@
         <el-tag type="info">支持格式: txt, pdf, docx, doc, md（非 MD 文件自动转换后入库）</el-tag>
       </div>
 
+      <!-- 文档列表：开关控制该文档是否参与 AI 检索，编辑保存后后端会同步重新入库 -->
       <el-table :data="files" stripe v-loading="loading">
         <el-table-column prop="name" label="文件名" min-width="200" />
         <el-table-column label="大小" width="120">
@@ -84,6 +85,7 @@
 </template>
 
 <script setup>
+/** AI 知识库管理页：上传/启停/在线编辑/删除知识文档，重建向量索引并轮询进度；文档内容统一按 Markdown 存储与预览 */
 import { ref, computed, onMounted } from 'vue'
 import { marked } from 'marked'
 import {
@@ -97,6 +99,7 @@ const files = ref([])
 const loading = ref(false)
 const uploading = ref(false)
 const rebuilding = ref(false)
+/** 重建过程的进度文案，直接覆盖"重建索引"按钮的显示 */
 const rebuildProgress = ref('')
 
 const editVisible = ref(false)
@@ -109,16 +112,19 @@ const viewFilename = ref('')
 const viewContent = ref('')
 const viewLoading = ref(false)
 
+/** 查看弹窗的 Markdown 渲染结果 */
 const viewHtml = computed(() => {
   if (!viewContent.value) return ''
   return marked.parse(viewContent.value, { breaks: true })
 })
 
+/** 编辑区实时预览渲染；breaks 让单个换行也生效，贴近编辑手感 */
 function renderPreview(text) {
   if (!text) return ''
   return marked.parse(text, { breaks: true })
 }
 
+/** 拉取知识库文件列表（含大小与启用状态） */
 async function loadList() {
   loading.value = true
   try {
@@ -129,6 +135,7 @@ async function loadList() {
   }
 }
 
+/** 上传文档并轮询等待后台入库；上传接口只负责落盘，分块入库在后台队列异步执行 */
 async function handleUpload(file) {
   uploading.value = true
   const expectedName = file.name.replace(/\.[^.]+$/, '') // 去掉扩展名
@@ -153,9 +160,11 @@ async function handleUpload(file) {
   } finally {
     uploading.value = false
   }
+  // 返回 false 阻止 el-upload 的默认上传行为，实际上传由 uploadKnowledge 完成
   return false
 }
 
+/** 切换单文档启用状态，禁用后 RAG 检索会跳过该文档的分块 */
 async function handleToggle(filename) {
   try {
     const res = await toggleKnowledge(filename)
@@ -166,6 +175,7 @@ async function handleToggle(filename) {
   }
 }
 
+/** 查看文档内容，接口统一返回 Markdown（PDF/Word 也会转换） */
 async function handleView(filename) {
   viewFilename.value = filename
   viewContent.value = ''
@@ -181,6 +191,7 @@ async function handleView(filename) {
   }
 }
 
+/** 打开编辑弹窗，进入前先取最新内容再回填 */
 async function handleEdit(filename) {
   try {
     const res = await getKnowledgeContent(filename)
@@ -192,6 +203,7 @@ async function handleEdit(filename) {
   }
 }
 
+/** 保存内容，后端同步重新入库，接口返回时索引已刷新，无需再手动重建 */
 async function handleSave() {
   saving.value = true
   try {
@@ -206,6 +218,7 @@ async function handleSave() {
   }
 }
 
+/** 删除文档及其索引分块，弹窗仍提示重建索引以兜底清理残留数据 */
 async function handleDelete(filename) {
   try {
     await ElMessageBox.confirm(`确认删除 "${filename}"？删除后需重建索引清理残留数据。`, '删除文档', { type: 'warning' })
@@ -219,11 +232,13 @@ async function handleDelete(filename) {
   }
 }
 
+/** 全量重建向量索引：后端异步执行，前端每 2 秒轮询进度，5 分钟超时兜底 */
 async function handleRebuild() {
   rebuilding.value = true
   rebuildProgress.value = '重建中...'
   try {
     const res = await rebuildKnowledge()
+    // running 表示已有重建任务在执行，直接退出避免重复触发
     if (res.status === 'running') {
       ElMessage.warning('重建正在进行中')
       rebuilding.value = false
@@ -254,7 +269,9 @@ async function handleRebuild() {
           if (statusRes.error) {
             ElMessage.error('重建失败: ' + statusRes.error)
           } else {
-            ElMessage.success(`重建完成: ${statusRes.result?.docs || 0} 个文档, ${statusRes.result?.chunks || 0} 个 chunk`)
+            const removed = statusRes.result?.removed || 0
+            const removedText = removed > 0 ? `, 清理残留 ${removed} 个来源` : ''
+            ElMessage.success(`重建完成: ${statusRes.result?.docs || 0} 个文档, ${statusRes.result?.chunks || 0} 个 chunk${removedText}`)
           }
           loadList()
         } else {
@@ -326,6 +343,7 @@ onMounted(loadList)
   line-height: 1.8;
   background: #fff;
 }
+/* 预览内容由 v-html 生成，不带 scoped 属性，需 :deep 穿透才能修饰其内部标签 */
 .markdown-preview :deep(h1),
 .markdown-preview :deep(h2),
 .markdown-preview :deep(h3) { margin: 12px 0 8px; font-weight: 600; }

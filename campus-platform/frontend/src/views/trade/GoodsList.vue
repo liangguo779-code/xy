@@ -5,6 +5,9 @@
       <el-input v-model="filters.keyword" placeholder="搜索你想要的宝贝..." size="large"
                 clearable @keyup.enter="loadGoods" @clear="loadGoods">
         <template #prefix><el-icon><Search /></el-icon></template>
+        <template #append>
+          <el-button @click="loadGoods"><el-icon><Search /></el-icon>&nbsp;搜索</el-button>
+        </template>
       </el-input>
     </div>
 
@@ -100,10 +103,13 @@
               </template>
             </el-image>
             <el-tag v-if="item.type === 1" class="want-tag" type="warning" size="small">求购</el-tag>
+            <!-- 被发起交易（status=3 且有占位）：卡片展示"已预订"角标 -->
+            <el-tag v-if="item.status === 3" class="reserved-tag" type="warning" size="small">已预订</el-tag>
             <el-tag v-if="item.condition" class="condition-tag" size="small">{{ item.condition }}</el-tag>
           </div>
           <div class="card-body">
-            <div class="card-title">{{ item.title }}</div>
+            <!-- 搜索命中带 <em> 高亮标记：经 highlightHtml 转义后仅保留 em 标签渲染 -->
+            <div class="card-title" v-html="highlightHtml(item.title)"></div>
             <div class="card-price">
               <span class="price">¥{{ item.price }}</span>
               <span class="original" v-if="item.originalPrice">¥{{ item.originalPrice }}</span>
@@ -200,10 +206,12 @@
 </template>
 
 <script setup>
+/** 商品列表页：关键词搜索、分类/类型/成色/价格筛选与排序，瀑布流展示并支持发布商品 */
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getGoodsList, getRecommendGoods, createGoods } from '@/api/goods'
+import { highlightHtml } from '@/utils/highlight'
 import { getCategories } from '@/api/category'
 
 const router = useRouter()
@@ -214,8 +222,10 @@ const categories = ref([])
 const showPublish = ref(false)
 const publishing = ref(false)
 
+/** 上传组件请求头：携带登录 token，初始化时快照当前值 */
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 
+/** 列表筛选条件：type 0-出售 1-求购；condition 为成色中文值；sortBy 空串走默认推荐排序 */
 const filters = reactive({
   keyword: '',
   categoryId: null,
@@ -226,6 +236,7 @@ const filters = reactive({
   sortBy: ''
 })
 
+/** 发布表单：价格单位元；condition 成色中文值；images 为 URL 数组，提交时序列化给后端 */
 const publishForm = reactive({
   title: '',
   description: '',
@@ -238,12 +249,14 @@ const publishForm = reactive({
   videoUrl: ''
 })
 
+/** 价格筛选回显文案，上界 99999 表示以上档位 */
 const priceLabel = computed(() => {
   if (!filters.minPrice && !filters.maxPrice) return '价格'
   if (filters.maxPrice >= 99999) return `${filters.minPrice}以上`
   return `${filters.minPrice || 0}-${filters.maxPrice}`
 })
 
+/** 取商品首图，images 字段后端存 JSON 字符串，解析失败返回空串 */
 function getFirstImage(item) {
   try {
     const imgs = typeof item.images === 'string' ? JSON.parse(item.images) : item.images
@@ -251,31 +264,37 @@ function getFirstImage(item) {
   } catch { return '' }
 }
 
+/** 瀑布流分列：按下标取模把商品均分到 4 列，保证列间高度交错 */
 function getColumnItems(colIndex) {
   return goodsList.value.filter((_, i) => i % 4 === colIndex)
 }
 
+/** 选中分类即筛选，再次点击同一分类取消筛选 */
 function selectCategory(id) {
   filters.categoryId = filters.categoryId === id ? null : id
   loadGoods()
 }
 
 
+/** 切换排序：newest-最新 price_asc/price_desc-价格 hottest-热门，空串为推荐 */
 function setSort(sort) {
   filters.sortBy = sort
   loadGoods()
 }
 
+/** 切换类型筛选：0-出售 1-求购 null-全部 */
 function setType(val) {
   filters.type = val
   loadGoods()
 }
 
+/** 切换成色筛选，值为成色中文文案，空串为全部 */
 function setCondition(val) {
   filters.condition = val
   loadGoods()
 }
 
+/** 解析价格档位命令（min-max 串），500-99999 表示 500 以上 */
 function setPriceRange(val) {
   if (!val) {
     filters.minPrice = null
@@ -288,10 +307,12 @@ function setPriceRange(val) {
   loadGoods()
 }
 
+/** 按当前筛选条件加载商品列表 */
 async function loadGoods() {
   loading.value = true
   try {
     const params = { page: 1, size: 50, ...filters }
+    // 剔除空筛选值避免后端按空串过滤；当前固定取前 50 条未做分页加载
     Object.keys(params).forEach(k => { if (params[k] === '' || params[k] === null) delete params[k] })
     const res = await getGoodsList(params)
     goodsList.value = res.data?.records || []
@@ -300,24 +321,28 @@ async function loadGoods() {
   }
 }
 
+/** 图片上传成功回调，接口约定 code=200 且 data.url 为图片地址 */
 function handleUploadSuccess(res) {
   if (res.code === 200) {
     publishForm.images.push(res.data.url)
   }
 }
 
+/** 记录视频地址，仅允许上传 1 个视频 */
 function handleVideoSuccess(res) {
   if (res.code === 200) {
     publishForm.videoUrl = res.data.url
   }
 }
 
+/** 移除已选图片，兼容上传中(file.url)与上传完成(file.response)两种来源 */
 function handleUploadRemove(file) {
   const url = file.response?.data?.url || file.url
   const idx = publishForm.images.indexOf(url)
   if (idx > -1) publishForm.images.splice(idx, 1)
 }
 
+/** 提交发布：images 序列化为 JSON 串、category 冗余存分类名，与后端字段约定一致 */
 async function handlePublish() {
   if (!publishForm.title || !publishForm.price) {
     ElMessage.warning('请填写标题和价格')
@@ -333,6 +358,7 @@ async function handlePublish() {
     })
     ElMessage.success('发布成功')
     showPublish.value = false
+    // 重置表单未清 videoUrl，同会话再次发布会沿用上次上传的视频
     Object.assign(publishForm, { title: '', description: '', price: 0, originalPrice: null, categoryId: null, condition: '良好', type: 0, images: [] })
     loadGoods()
   } finally {
@@ -340,8 +366,10 @@ async function handlePublish() {
   }
 }
 
+/** 跳转商品详情页 */
 function goDetail(id) { router.push(`/goods/${id}`) }
 
+/** 加载推荐商品，失败静默处理不阻断列表 */
 async function loadRecommend() {
   try {
     const res = await getRecommendGoods({ page: 1, size: 8 })
@@ -349,6 +377,7 @@ async function loadRecommend() {
   } catch { /* ignore */ }
 }
 
+/** 初始化：先加载分类供导航与发布表单使用，再拉取列表与推荐 */
 onMounted(async () => {
   const catRes = await getCategories()
   categories.value = catRes.data || []
@@ -622,6 +651,7 @@ onMounted(async () => {
 }
 
 .want-tag { position: absolute; top: 8px; left: 8px; border-radius: 999px; }
+.reserved-tag { position: absolute; top: 8px; right: 8px; border-radius: 999px; }
 .condition-tag {
   position: absolute;
   bottom: 8px;
@@ -646,6 +676,13 @@ onMounted(async () => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin-bottom: 6px;
+}
+
+/* ES 搜索高亮：v-html 渲染的 em 标签（scoped 下需 :deep） */
+.card-title :deep(em) {
+  color: #f56c6c;
+  font-style: normal;
+  font-weight: 600;
 }
 
 .card-price {

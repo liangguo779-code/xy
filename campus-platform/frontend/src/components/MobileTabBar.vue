@@ -1,4 +1,5 @@
 <template>
+  <!-- 移动端底部固定标签栏，桌面端由媒体查询隐藏 -->
   <div class="mobile-tabbar">
     <div v-for="tab in tabs" :key="tab.path"
          :class="['tab-item', { active: isActive(tab.path) }]"
@@ -10,12 +11,17 @@
 </template>
 
 <script setup>
+/**
+ * 移动端底部标签栏：替代顶部导航的五个主入口，点击切换路由
+ * 当前项按路径前缀高亮，桌面端隐藏
+ */
 import { useRoute, useRouter } from 'vue-router'
 import { GoodsFilled, Notebook, Plus, ChatDotRound, User } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
 
+/** tab 配置，label 为显示名（首页即二手交易列表），path 为路由入口 */
 const tabs = [
   { path: '/goods', label: '首页', icon: GoodsFilled },
   { path: '/forum', label: '论坛', icon: Notebook },
@@ -24,12 +30,14 @@ const tabs = [
   { path: '/profile', label: '我的', icon: User }
 ]
 
+/** 前缀匹配，使商品详情等子路由也高亮所属一级 tab */
 function isActive(path) {
   return route.path.startsWith(path)
 }
 </script>
 
 <style scoped>
+/* fixed 底栏需用 safe-area-inset-bottom 预留 iPhone 底部安全区 */
 .mobile-tabbar {
   position: fixed;
   bottom: 0;

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.Map;
 
+/** 管理后台数据看板接口，聚合各业务模块的统计指标 */
 @RestController
 @RequestMapping("/api/admin")
 @SaCheckRole("ADMIN")
@@ -28,6 +29,11 @@ public class AdminController {
     private final DisputeMapper disputeMapper;
     private final ReportMapper reportMapper;
 
+    /**
+     * 获取后台仪表盘统计数据
+     *
+     * @return 各模块统计指标的键值对（单个模块统计失败不影响其他模块，对应键写入错误提示）
+     */
     @GetMapping("/dashboard")
     public R<Map<String, Object>> dashboard() {
         Map<String, Object> result = new HashMap<>();
@@ -46,7 +52,7 @@ public class AdminController {
         try {
             long goodsTotal = goodsMapper.selectCount(null);
             long onSale = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 0));
-            long pendingReview = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 3));
+            long pendingReview = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 3)); // status=3 待审核
             result.put("goodsCount", onSale);
             result.put("goodsTotal", goodsTotal);
             result.put("goodsPendingReview", pendingReview);
@@ -57,8 +63,8 @@ public class AdminController {
         // 订单统计
         try {
             long orderTotal = orderMapper.selectCount(null);
-            long orderPending = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 0));
-            long orderCompleted = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 3));
+            long orderPending = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 0)); // status=0 待支付/待处理
+            long orderCompleted = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 3)); // status=3 已完成
             result.put("orderCount", orderTotal);
             result.put("orderPending", orderPending);
             result.put("orderCompleted", orderCompleted);

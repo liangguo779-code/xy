@@ -6,6 +6,7 @@
         <p>加入校园生态平台</p>
       </div>
 
+      <!-- 注册表单：昵称选填；发码前需先完成算术人机验证，防止脚本刷验证码 -->
       <el-form ref="formRef" :model="form" :rules="rules" label-width="0" autocomplete="off" @submit.prevent="handleRegister">
         <div class="floating-label" :class="{ active: form.email, focused: emailFocused }">
           <label>邮箱</label>
@@ -66,26 +67,32 @@
 </template>
 
 <script setup>
+/** 注册页：邮箱验证码注册，发码前需通过算术人机验证，成功后跳转登录页 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { register, getCaptcha, sendEmailCode } from '@/api/auth'
+import { validatePasswordStrength } from '@/utils/password'
 
 const router = useRouter()
 const formRef = ref()
 const loading = ref(false)
 const sendingCode = ref(false)
+/** 发送冷却倒计时（秒），大于 0 时禁用发送按钮 */
 const countdown = ref(0)
 const form = ref({ email: '', code: '', password: '', nickname: '', captchaAnswer: '' })
 
+// focused 仅用于驱动浮动标签样式，不参与表单校验
 const emailFocused = ref(false)
 const codeFocused = ref(false)
 const passwordFocused = ref(false)
 const nicknameFocused = ref(false)
 
+// captchaId 与计算结果一并提交，供后端比对是否通过人机验证
 const captchaId = ref('')
 const captchaImage = ref('')
 
+/** 校验规则：邮箱格式、6 位数字验证码、密码 8-20 位且含大写/小写/数字/特殊字符中至少三类 */
 const rules = {
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -97,10 +104,11 @@ const rules = {
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '长度6-20位', trigger: 'blur' }
+    { validator: validatePasswordStrength, trigger: 'blur' }
   ]
 }
 
+/** 拉取算术验证码图片，提交时需同时携带 captchaId 与计算结果供后端比对 */
 async function refreshCaptcha() {
   try {
     const res = await getCaptcha()
@@ -112,6 +120,7 @@ async function refreshCaptcha() {
   }
 }
 
+/** 发送邮箱验证码：邮箱与人机验证通过后才发码，成功后进入 60 秒冷却 */
 async function handleSendCode() {
   try { await formRef.value.validateField('email') } catch { return }
   if (!form.value.captchaAnswer) {
@@ -132,12 +141,14 @@ async function handleSendCode() {
       if (countdown.value <= 0) clearInterval(timer)
     }, 1000)
   } catch (e) {
+    // 发送失败多半是人机验证答案有误，换一张验证码图再试
     refreshCaptcha()
   } finally {
     sendingCode.value = false
   }
 }
 
+/** 提交注册，成功后跳转登录页，需用新账号手动登录 */
 async function handleRegister() {
   await formRef.value.validate()
   loading.value = true

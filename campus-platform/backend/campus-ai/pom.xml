@@ -33,7 +33,7 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai</artifactId>
         </dependency>
-        <!-- Chinese embedding (BAAI/bge-small-zh, 512-dim). The langchain4j 1.0.0-beta5 BOM
+        <!-- Chinese embedding (BAAI/bge-small-zh, 512-dim). The langchain4j 1.0.1 BOM
              ships bge-small-zh but not bge-base-zh — the model is on disk in
              ${campus.ai.home}/models/bge-small-zh after first start. -->
         <dependency>
@@ -47,13 +47,6 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-onnx-scoring</artifactId>
-        </dependency>
-
-        <!-- Elasticsearch embedding store — wraps the ES Java Client for vector
-             search via LangChain4j's EmbeddingStore<TextSegment> interface. -->
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-elasticsearch</artifactId>
         </dependency>
 
         <!-- Document parsing for knowledge ingestion is done directly with
@@ -93,10 +86,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
         </dependency>
     </dependencies>
 </project>

@@ -6,13 +6,17 @@ import lombok.Data;
 
 import java.util.List;
 
+/** AI 对话响应体。 */
 @Data
 public class ChatResponse {
 
+    /** 会话 ID（新建会话时由服务端回填）。 */
     private Long sessionId;
 
+    /** 生成的回答文本。 */
     private String answer;
 
+    /** 引用来源列表，index 与回答中的 [来源N] 对应。 */
     private List<SourceItem> sources;
 
     /**
@@ -21,14 +25,20 @@ public class ChatResponse {
      */
     private String confidence;
 
+    /** 单条引用来源。 */
     @Data
     @Builder
     public static class SourceItem {
+        /** 来源编号，从 1 开始，对应正文中的 [来源N]。 */
         private Integer index;
+        /** 来源展示名（章节路径优先，否则为文件名）。 */
         private String source;
+        /** 分块在源文件内的序号。 */
         @JsonProperty("chunk_index")
         private Integer chunkIndex;
+        /** 分块正文片段。 */
         private String content;
+        /** 检索相关性分数。 */
         private Double score;
     }
 }

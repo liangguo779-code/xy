@@ -22,21 +22,31 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @RequiredArgsConstructor
 public class DisabledFilesCache {
 
+    /** 内存缓存有效期（毫秒），过期后重新读盘，兼顾一致性与检索路径的读盘开销。 */
     private static final long TTL_MS = 30_000L;
+    /** 持久化配置文件名，存放于知识目录下。 */
     private static final String CONFIG_FILE = "_config.json";
 
     private final AiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** 读写锁：检索线程并发读缓存，reload/toggle 时独占写。 */
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    /** 当前被禁用的文件名集合。 */
     private Set<String> disabled = Set.of();
+    /** 上次加载时间戳，配合 TTL 判断缓存是否过期。 */
     private long loadedAt = 0;
 
+    /** 启动时预加载一次禁用列表。 */
     @PostConstruct
     void init() {
         reload();
     }
 
+    /**
+     * 获取禁用文件名集合。缓存未过期且非空时直接返回（空集合也按需重读，
+     * 避免"全部启用"状态下磁盘变更迟迟不可见）；否则重新加载。
+     */
     public Set<String> getDisabled() {
         long now = System.currentTimeMillis();
         lock.readLock().lock();
@@ -56,6 +66,7 @@ public class DisabledFilesCache {
         }
     }
 
+    /** 切换指定文件的禁用状态并落盘，返回切换后的启用状态（true=已启用）。 */
     public boolean toggle(String filename) {
         Set<String> set = new HashSet<>(getDisabled());
         boolean enabled;
@@ -71,6 +82,7 @@ public class DisabledFilesCache {
         return enabled;
     }
 
+    /** 置空加载时间戳，强制下次 getDisabled 时重新读盘。 */
     public void invalidate() {
         lock.writeLock().lock();
         try {

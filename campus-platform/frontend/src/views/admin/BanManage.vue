@@ -20,6 +20,7 @@
         </el-select>
       </div>
 
+      <!-- 封禁记录列表：类型 user/ip，能力 all/trade/message/forum，状态 1-生效中 0-已解除 -->
       <el-table :data="list" stripe>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="targetType" label="类型" width="80">
@@ -93,6 +94,10 @@
 </template>
 
 <script setup>
+/**
+ * 封禁管理：对用户或 IP 封禁（可限定能力范围与天数），并可手动解封
+ * targetType user/ip；banType all-全部 trade-交易 message-私信 forum-论坛；status 1-生效中 0-已解除
+ */
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 
@@ -100,10 +105,12 @@ const list = ref([])
 const page = ref(1)
 const total = ref(0)
 const filterTargetType = ref('')
+/** 状态筛选默认 1-只看生效中，清空则查全部 */
 const filterStatus = ref(1)
 const showBanDialog = ref(false)
 const banning = ref(false)
 
+/** 封禁表单：targetType 决定提交接口与 targetValue 含义（用户 ID 需转数字） */
 const banForm = ref({
   targetType: 'user',
   targetValue: '',
@@ -112,14 +119,19 @@ const banForm = ref({
   reason: ''
 })
 
+/** 手动拼接的鉴权头，fetch 未走统一请求封装，token 需自行携带 */
 const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 
+/** 封禁能力文案映射，未知类型原样展示 */
 const banTypeText = (t) => ({ all: '全部', trade: '交易', message: '私信', forum: '论坛' }[t] || t)
+/** 封禁能力对应的标签色映射 */
 const banTypeTag = (t) => ({ all: 'danger', trade: 'warning', message: '', forum: 'info' }[t] || '')
 
+/** 分页加载封禁记录，筛选项为空时不传对应参数 */
 async function loadData() {
   const params = { page: page.value, size: 20 }
   if (filterTargetType.value) params.targetType = filterTargetType.value
+  // status 可能为 0-已解除，必须用 !== '' 判断，否则 0 会被当成未筛选而丢参
   if (filterStatus.value !== '') params.status = filterStatus.value
 
   const query = new URLSearchParams(params).toString()
@@ -129,6 +141,7 @@ async function loadData() {
   total.value = data.data?.total || 0
 }
 
+/** 提交封禁：用户与 IP 走不同接口且 body 字段不同，后端约定 code 200 为成功 */
 async function handleBan() {
   if (!banForm.value.targetValue || !banForm.value.reason) {
     ElMessage.warning('请填写完整信息')
@@ -136,6 +149,7 @@ async function handleBan() {
   }
   banning.value = true
   try {
+    // 用户封禁要求 userId 为数字，故对 targetValue 做 Number 转换
     const url = banForm.value.targetType === 'user' ? '/api/admin/bans/user' : '/api/admin/bans/ip'
     const body = banForm.value.targetType === 'user'
       ? { userId: Number(banForm.value.targetValue), banType: banForm.value.banType, reason: banForm.value.reason, days: banForm.value.days }
@@ -156,6 +170,7 @@ async function handleBan() {
   }
 }
 
+/** 解封指定记录，后端将状态置为 0-已解除；仅生效中的记录展示该按钮 */
 async function handleUnban(id) {
   const res = await fetch(`/api/admin/bans/${id}/unban`, { method: 'PUT', headers })
   const data = await res.json()

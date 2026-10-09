@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/** 会话历史实现：MySQL 持久化会话/消息，删除会话时同步清理 Redis 对话记忆。 */
 @Service
 @RequiredArgsConstructor
 public class AiChatHistoryServiceImpl extends ServiceImpl<AiChatSessionMapper, AiChatSession>
@@ -108,6 +109,7 @@ public class AiChatHistoryServiceImpl extends ServiceImpl<AiChatSessionMapper, A
         sessionMapper.updateById(session);
     }
 
+    /** 实体转 VO，并附带最后一条消息的 50 字预览作为会话列表摘要。 */
     private AiChatSessionVO toSessionVO(AiChatSession s) {
         AiChatSessionVO vo = new AiChatSessionVO();
         vo.setId(s.getId());

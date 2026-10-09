@@ -6,6 +6,7 @@ import com.campus.trade.entity.DeliveryTrack;
 import java.math.BigDecimal;
 import java.util.List;
 
+/** 配送轨迹服务，记录并查询跑腿员位置与操作节点 */
 public interface DeliveryTrackService extends IService<DeliveryTrack> {
     /** 添加轨迹记录 */
     void addTrack(Long deliveryId, Long runnerId, String action,

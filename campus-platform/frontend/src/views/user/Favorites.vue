@@ -1,6 +1,7 @@
 <template>
   <div>
     <h2>我的收藏</h2>
+    <!-- 收藏商品网格，点击卡片跳转商品详情 -->
     <div class="fav-grid" v-if="list.length">
       <div v-for="item in list" :key="item.id" class="fav-card" @click="router.push(`/goods/${item.id}`)">
         <el-image :src="getFirstImage(item)" fit="cover" style="width: 100%; height: 160px; border-radius: 8px">
@@ -15,6 +16,7 @@
 </template>
 
 <script setup>
+/** 我的收藏页：拉取当前用户收藏的商品并以卡片网格展示，点击进入商品详情 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMyFavorites } from '@/api/favorite'
@@ -22,6 +24,7 @@ import { getMyFavorites } from '@/api/favorite'
 const router = useRouter()
 const list = ref([])
 
+/** 取商品首图；images 字段兼容 JSON 字符串与数组两种存法，解析失败或无图时返回空串走占位图 */
 function getFirstImage(item) {
   try {
     const imgs = typeof item.images === 'string' ? JSON.parse(item.images) : item.images

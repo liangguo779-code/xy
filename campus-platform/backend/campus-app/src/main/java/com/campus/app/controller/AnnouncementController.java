@@ -8,6 +8,7 @@ import com.campus.app.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+/** 公告接口，用户端仅可查看已上架公告，管理端可增删改查全部公告 */
 @RestController
 @RequestMapping("/api/announcements")
 @RequiredArgsConstructor

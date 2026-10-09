@@ -4,6 +4,7 @@
       <template #content>我的评价</template>
     </el-page-header>
 
+    <!-- 收到的与发出的两个标签页共用下方列表区，切换后重新拉取第一页 -->
     <el-tabs v-model="activeTab" @tab-change="switchTab" style="margin-top: 16px">
       <el-tab-pane label="收到的评价" name="received" />
       <el-tab-pane label="发出的评价" name="given" />
@@ -94,6 +95,7 @@
 </template>
 
 <script setup>
+/** 我的评价页：分收到的与发出的两个标签页，支持回复评价与提交申诉 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMyReceivedReviews, getMyGivenReviews, appealReview, replyReview } from '@/api/review'
@@ -117,17 +119,20 @@ const appealDialogVisible = ref(false)
 const appealReason = ref('')
 const submitting = ref(false)
 
+/** tags 兼容 JSON 字符串与数组两种存储形态，解析失败按无标签处理 */
 function parseTags(tags) {
   if (!tags) return []
   try { return typeof tags === 'string' ? JSON.parse(tags) : tags }
   catch { return [] }
 }
 
+/** 切换标签后回到第一页重新加载，避免沿用另一列表的分页位置 */
 function switchTab() {
   page.value = 1
   loadData()
 }
 
+/** 按当前标签分页拉取评价，接口返回 records 与 total 的分页结构 */
 async function loadData() {
   loading.value = true
   try {
@@ -141,12 +146,14 @@ async function loadData() {
   finally { loading.value = false }
 }
 
+/** 打开回复弹窗并清空上次输入，避免残留旧内容 */
 function openReply(item) {
   currentReview.value = item
   replyContent.value = ''
   replyDialogVisible.value = true
 }
 
+/** 提交回复并刷新列表；每条评价只保留一个回复入口，已有回复的不再提供 */
 async function submitReply() {
   if (!replyContent.value.trim()) return ElMessage.warning('请输入回复内容')
   submitting.value = true
@@ -159,12 +166,14 @@ async function submitReply() {
   finally { submitting.value = false }
 }
 
+/** 打开申诉弹窗并清空上次输入 */
 function openAppeal(item) {
   currentReview.value = item
   appealReason.value = ''
   appealDialogVisible.value = true
 }
 
+/** 提交申诉并刷新列表；仅未申诉（appealStatus 为 0）的评价可发起申诉 */
 async function submitAppeal() {
   if (!appealReason.value.trim()) return ElMessage.warning('请输入申诉理由')
   submitting.value = true

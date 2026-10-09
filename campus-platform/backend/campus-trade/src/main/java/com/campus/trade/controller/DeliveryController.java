@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 
+/** 跑腿配送接口：接单、取货、送达、轨迹上报与查询 */
 @RestController
 @RequestMapping("/api/delivery")
 @RequiredArgsConstructor
@@ -24,11 +25,13 @@ public class DeliveryController {
     private final DeliveryTrackService deliveryTrackService;
     private final RedissonClient redisson;
 
+    /** 获取待接单的配送任务列表 */
     @GetMapping("/pending")
     public R<List<DeliveryOrderVO>> pendingOrders() {
         return R.ok(deliveryService.getPendingOrders());
     }
 
+    /** 跑腿员接单，可顺带上报接单位置 */
     @PutMapping("/{id}/accept")
     public R<DeliveryOrderVO> acceptOrder(@PathVariable Long id,
                                            @RequestParam(required = false) BigDecimal lat,
@@ -38,6 +41,7 @@ public class DeliveryController {
         return R.ok(vo);
     }
 
+    /** 跑腿员确认取货，可附取货凭证照片与位置 */
     @PutMapping("/{id}/pickup")
     public R<DeliveryOrderVO> pickupGoods(
             @PathVariable Long id,
@@ -49,6 +53,7 @@ public class DeliveryController {
         return R.ok(vo);
     }
 
+    /** 跑腿员确认送达，可附送达凭证照片与位置 */
     @PutMapping("/{id}/deliver")
     public R<DeliveryOrderVO> deliverGoods(
             @PathVariable Long id,
@@ -60,6 +65,7 @@ public class DeliveryController {
         return R.ok(vo);
     }
 
+    /** 获取我（跑腿员）的配送任务列表 */
     @GetMapping("/my")
     public R<List<DeliveryOrderVO>> myDeliveries() {
         Long runnerId = StpUtil.getLoginIdAsLong();

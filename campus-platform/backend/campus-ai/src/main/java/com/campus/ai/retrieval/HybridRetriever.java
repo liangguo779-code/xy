@@ -30,22 +30,38 @@ import java.util.concurrent.*;
 @RequiredArgsConstructor
 public class HybridRetriever {
 
+    /** BM25 多路查询上限（含原查询与同义变体），限制并行检索成本。 */
+    private static final int MAX_BM25_QUERIES = 8;
+
     private final VectorStoreFacade vectorStore;
     private final Bm25Index bm25;
+    /** 禁用来源缓存，检索前取出一次性过滤，避免逐条查询开销。 */
     private final DisabledFilesCache disabled;
     private final AiProperties props;
+    /** 规则同义扩展器：为 BM25 通道补充口语→正式用词的变体查询。 */
+    private final SynonymExpander synonymExpander;
 
+    /**
+     * 对多个改写查询执行混合检索（向量仅用首查询，BM25 并行扫全部查询），RRF 融合后
+     * 再做关键词保底补齐与父子分块展开。
+     *
+     * @param queries 改写后的查询词列表
+     * @param topK    最终返回条数上限
+     */
     public List<Hit> searchMulti(List<String> queries, int topK) {
         if (queries == null || queries.isEmpty()) return List.of();
         Set<String> disabledSet = disabled.getDisabled();
 
         // 标准混合检索：向量 + BM25，通过 RRF 融合
         List<VectorStoreFacade.Hit> vec = vectorStore.search(queries.get(0), topK * 2 + disabledSet.size() * 5, disabledSet);
+        // BM25 通道：对每个查询做规则同义扩展（如 挂科→不及格/补考/重学），
+        // 多路并行检索提升词面召回；变体总量封顶，避免查询爆炸拖慢融合。
+        List<String> bm25Queries = expandForBm25(queries);
         List<List<Bm25Index.Hit>> bm25PerQuery = new ArrayList<>();
-        ExecutorService exec = Executors.newFixedThreadPool(Math.min(queries.size(), 5));
+        ExecutorService exec = Executors.newFixedThreadPool(Math.min(bm25Queries.size(), 5));
         try {
             List<Future<List<Bm25Index.Hit>>> futures = new ArrayList<>();
-            for (String q : queries) {
+            for (String q : bm25Queries) {
                 futures.add(exec.submit(() -> bm25.search(q, topK * 2, disabledSet)));
             }
             for (Future<List<Bm25Index.Hit>> f : futures) {
@@ -79,7 +95,7 @@ public class HybridRetriever {
         try {
             String contentQuery = queries.get(0)
                     .replaceAll("怎么办理|办理|如何|怎样|流程|请问|申请|需要|是否", " ")
-                    .replaceAll("\s+", " ").trim();
+                    .replaceAll("\\s+", " ").trim();
             if (!contentQuery.isEmpty()) {
                 List<Bm25Index.Hit> direct = bm25.search(contentQuery, topK, disabledSet);
                 for (Bm25Index.Hit h : direct) {
@@ -94,14 +110,47 @@ public class HybridRetriever {
 
         if (result.size() > topK) result = result.subList(0, topK);
 
+        // 跨文档同内容去重：条文在政策原文与办事指南摘录中重复出现时，
+        // 只保留排名最高的一条，避免同一次回答的参考来源里出现整段重复。
+        Set<String> seenContent = new HashSet<>();
+        List<Hit> deduped = new ArrayList<>();
+        for (Hit h : result) {
+            if (seenContent.add(normalizeForDedup(h.content()))) {
+                deduped.add(h);
+            }
+        }
+        result = deduped;
+
         // 解析父子关系：将子分块替换为其父分块（完整文章）
         result = resolveParents(result);
 
         return result;
     }
 
+    /** 去重归一：去掉【章节路径】头与所有空白，使同文不同路径头的重复条文可识别。 */
+    private static String normalizeForDedup(String content) {
+        if (content == null) return "";
+        return content.replaceAll("【[^】]*】", "").replaceAll("\\s+", "");
+    }
+
+    /** 单查询便捷入口，等价于 searchMulti(List.of(query), topK)。 */
     public List<Hit> search(String query, int topK) {
         return searchMulti(List.of(query), topK);
+    }
+
+    /**
+     * 为 BM25 通道展开查询：每个原查询保留自身，追加规则同义变体。
+     * 全局去重并封顶（最多 {@value #MAX_BM25_QUERIES} 路），防止多查询 × 多变体爆炸。
+     */
+    private List<String> expandForBm25(List<String> queries) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (String q : queries) {
+            for (String v : synonymExpander.expand(q)) {
+                out.add(v);
+                if (out.size() >= MAX_BM25_QUERIES) return new ArrayList<>(out);
+            }
+        }
+        return new ArrayList<>(out);
     }
 
     /**
@@ -145,6 +194,7 @@ public class HybridRetriever {
         return resolved;
     }
 
+    /** RRF 融合：每个命中按 1/(k+rank+1) 累加得分（k 为排名常量，默认 60），同文档多路命中分数叠加。 */
     private List<Hit> fuse(List<VectorStoreFacade.Hit> vec, List<List<Bm25Index.Hit>> bm25Lists, int k) {
         Map<String, Double> scores = new HashMap<>();
         Map<String, Hit> docs = new HashMap<>();
@@ -180,7 +230,13 @@ public class HybridRetriever {
         return source + "_" + chunkIndex;
     }
 
+    /**
+     * 融合后的命中结果。
+     *
+     * @param sectionPath 分块所属章节路径（如"第三章 > 第七条"），展示优先于 source
+     */
     public record Hit(String source, int chunkIndex, String content, double score, String sectionPath) {
+        /** 兼容无章节路径场景的便捷构造器。 */
         public Hit(String source, int chunkIndex, String content, double score) {
             this(source, chunkIndex, content, score, "");
         }

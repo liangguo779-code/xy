@@ -1,5 +1,6 @@
 <template>
   <div class="skeleton-card" :style="{ width, height }">
+    <!-- 各 type 对齐真实卡片结构占位，减少内容加载完成后的布局抖动 -->
     <div v-if="type === 'goods'" class="skeleton-goods">
       <div class="skeleton-image"></div>
       <div class="skeleton-body">
@@ -30,6 +31,8 @@
 </template>
 
 <script setup>
+/** 骨架屏占位卡片，用于列表加载中占位，降低内容到达后的布局抖动 */
+/** type: goods/post/comment/generic，width/height 直接作用于根节点 */
 defineProps({
   type: { type: String, default: 'generic' },
   width: { type: String, default: '100%' },
@@ -99,6 +102,7 @@ defineProps({
 .skeleton-line-80 { width: 80%; }
 .skeleton-line-100 { width: 100%; }
 
+/* 渐变背景放大到 400% 后平移 background-position，形成循环扫光效果 */
 @keyframes skeleton-loading {
   0% { background-position: 100% 50%; }
   100% { background-position: 0 50%; }

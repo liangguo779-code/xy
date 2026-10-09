@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/** 商品分类接口 */
 @RestController
 @RequestMapping("/api/categories")
 @RequiredArgsConstructor
@@ -17,6 +18,7 @@ public class CategoryController {
 
     private final CategoryService categoryService;
 
+    /** 获取分类树（含层级子分类） */
     @GetMapping
     public R<List<Category>> list() {
         return R.ok(categoryService.getCategoryTree());

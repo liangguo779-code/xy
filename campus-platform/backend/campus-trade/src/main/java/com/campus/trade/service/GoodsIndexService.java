@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/** 商品 ES 索引管理服务，负责索引初始化与商品数据的增量/全量同步 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -36,6 +37,7 @@ public class GoodsIndexService {
     private final ElasticsearchClient esClient;
     private final GoodsMapper goodsMapper;
 
+    /** 启动时初始化索引：不存在则创建；ES 未启动时仅告警，不阻断应用启动 */
     @PostConstruct
     public void initIndex() {
         try {
@@ -50,6 +52,7 @@ public class GoodsIndexService {
         }
     }
 
+    /** 创建 goods 索引，title/description 用 IK 分词，其余字段按过滤/排序用途选型 */
     public void createIndex() throws IOException {
         Map<String, Property> properties = new HashMap<>();
 
@@ -71,6 +74,7 @@ public class GoodsIndexService {
         properties.put("location", Property.of(p -> p.keyword(KeywordProperty.of(k -> k))));
         properties.put("type", Property.of(p -> p.integer(IntegerNumberProperty.of(i -> i))));
         properties.put("status", Property.of(p -> p.integer(IntegerNumberProperty.of(i -> i))));
+        properties.put("reserveRef", Property.of(p -> p.long_(LongNumberProperty.of(l -> l))));
         properties.put("images", Property.of(p -> p.keyword(KeywordProperty.of(k -> k))));
         properties.put("userId", Property.of(p -> p.long_(LongNumberProperty.of(l -> l))));
         properties.put("viewCount", Property.of(p -> p.integer(IntegerNumberProperty.of(i -> i))));
@@ -87,6 +91,7 @@ public class GoodsIndexService {
                 .mappings(m -> m.properties(properties)));
     }
 
+    /** 索引单个商品（新增或覆盖更新），失败仅记日志不影响业务主流程 */
     public void indexGoods(Goods goods) {
         try {
             GoodsDocument doc = GoodsDocument.fromGoods(goods);
@@ -99,6 +104,7 @@ public class GoodsIndexService {
         }
     }
 
+    /** 删除单个商品的索引文档，失败仅记日志 */
     public void deleteGoods(Long goodsId) {
         try {
             esClient.delete(d -> d
@@ -109,6 +115,7 @@ public class GoodsIndexService {
         }
     }
 
+    /** 全量重建索引：删旧索引后重建可检索商品（在售 + 已预订；待审核/下架/售出不入索引） */
     public void reindexAll() {
         try {
             boolean exists = esClient.indices().exists(
@@ -119,7 +126,9 @@ public class GoodsIndexService {
             createIndex();
 
             List<Goods> allGoods = goodsMapper.selectList(
-                    new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 0));
+                    new LambdaQueryWrapper<Goods>()
+                            .and(w -> w.eq(Goods::getStatus, 0)
+                                    .or(x -> x.eq(Goods::getStatus, 3).isNotNull(Goods::getReserveRef))));
 
             if (allGoods.isEmpty()) {
                 log.info("全量重建索引：没有需要索引的商品");

@@ -11,6 +11,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
+/**
+ * 封禁服务实现。封禁采用"删旧建新"维护生效记录，判定生效需同时满足
+ * status=1 且未过 banUntil，避免历史记录干扰。
+ */
 @Service
 public class BanServiceImpl extends ServiceImpl<BanRecordMapper, BanRecord> implements BanService {
 
@@ -25,6 +29,7 @@ public class BanServiceImpl extends ServiceImpl<BanRecordMapper, BanRecord> impl
 
         BanRecord record = new BanRecord();
         record.setTargetType("user");
+        // 统一存字符串，与 IP 封禁共用 targetValue 字段
         record.setTargetValue(String.valueOf(userId));
         record.setBanType(banType);
         record.setReason(reason);
@@ -53,6 +58,7 @@ public class BanServiceImpl extends ServiceImpl<BanRecordMapper, BanRecord> impl
         save(record);
     }
 
+    /** 解除封禁仅置状态为 0，保留记录便于审计追溯 */
     @Override
     public void unban(Long recordId, Long operatorId) {
         update(new LambdaUpdateWrapper<BanRecord>()
@@ -60,6 +66,7 @@ public class BanServiceImpl extends ServiceImpl<BanRecordMapper, BanRecord> impl
                 .set(BanRecord::getStatus, 0));
     }
 
+    /** 命中"指定能力"或 all 级封禁均视为被封；LIMIT 1 防多条异常 */
     @Override
     public BanRecord checkUserBan(Long userId, String banType) {
         return getOne(new LambdaQueryWrapper<BanRecord>()
@@ -91,6 +98,7 @@ public class BanServiceImpl extends ServiceImpl<BanRecordMapper, BanRecord> impl
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 批量把已过期但仍标为生效的记录置为已解除，由定时任务触发 */
     @Override
     public void cleanExpiredBans() {
         update(new LambdaUpdateWrapper<BanRecord>()

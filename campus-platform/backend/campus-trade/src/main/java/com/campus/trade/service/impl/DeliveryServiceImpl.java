@@ -2,6 +2,7 @@ package com.campus.trade.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.common.exception.BusinessException;
 import com.campus.trade.dto.DeliveryOrderVO;
@@ -15,6 +16,7 @@ import com.campus.trade.mapper.DeliveryTrackMapper;
 import com.campus.trade.mapper.OrderMapper;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.DeliveryTrackService;
+import com.campus.trade.service.OrderTimeoutService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
 import com.campus.common.entity.User;
 import com.campus.common.entity.Address;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/** 跑腿配送服务实现，负责配送工单全流程与主订单状态联动、WebSocket 通知 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -46,7 +49,9 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     private final ChatWebSocketHandler wsHandler;
     private final RedissonClient redisson;
     private final DeliveryTrackService deliveryTrackService;
+    private final OrderTimeoutService orderTimeoutService;
 
+    /** 创建配送工单，买卖家地址取宿舍/默认收货地址，同一订单不可重复创建 */
     @Override
     @Transactional
     public DeliveryOrderVO createDeliveryOrder(Long orderId) {
@@ -75,6 +80,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         return toVO(delivery);
     }
 
+    /** 交付员抢单：Redisson 分布式锁防并发抢单，锁到事务提交后才释放 */
     @Override
     @Transactional
     public DeliveryOrderVO acceptOrder(Long runnerId, Long deliveryId,
@@ -103,16 +109,35 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
                     throw new BusinessException("工单已被接单");
                 }
 
+                // 条件更新防抢单/取消竞态：仅当工单仍为待接单才可抢单（P0-4）
+                LocalDateTime acceptTime = LocalDateTime.now();
+                int updated = deliveryMapper.update(null, new LambdaUpdateWrapper<DeliveryOrder>()
+                        .eq(DeliveryOrder::getId, deliveryId)
+                        .eq(DeliveryOrder::getStatus, DeliveryStatus.PENDING.getCode())
+                        .set(DeliveryOrder::getRunnerId, runnerId)
+                        .set(DeliveryOrder::getStatus, DeliveryStatus.ACCEPTED.getCode())
+                        .set(DeliveryOrder::getAcceptTime, acceptTime));
+                if (updated == 0) {
+                    throw new BusinessException("工单已被接单或已取消，状态已变化");
+                }
                 delivery.setRunnerId(runnerId);
                 delivery.setStatus(DeliveryStatus.ACCEPTED.getCode());
-                delivery.setAcceptTime(LocalDateTime.now());
-                deliveryMapper.updateById(delivery);
+                delivery.setAcceptTime(acceptTime);
 
-                // 更新主订单状态
+                // 更新主订单状态（条件更新带前置状态谓词：仅当仍为待派单才流转为已派单，
+                // 防止 updateById 全量覆盖把并发取消的 CANCELLED 击穿为 ASSIGNED，P0-4）
                 Order order = orderMapper.selectById(delivery.getOrderId());
                 if (order == null) throw new BusinessException("关联订单不存在");
+                int orderUpdated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                        .eq(Order::getId, order.getId())
+                        .eq(Order::getStatus, OrderStatus.PENDING_DELIVERY.getCode())
+                        .set(Order::getStatus, OrderStatus.ASSIGNED.getCode())
+                        .set(Order::getUpdateTime, LocalDateTime.now()));
+                if (orderUpdated == 0) {
+                    throw new BusinessException("订单状态已变化，请刷新后重试");
+                }
                 order.setStatus(OrderStatus.ASSIGNED.getCode());
-                orderMapper.updateById(order);
+
 
                 // 通知买卖双方
                 notifyOrderUsers(order, "delivery_accepted",
@@ -154,6 +179,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         }
     }
 
+    /** 交付员取货并上传拍照存证，联动主订单为已取货状态 */
     @Override
     @Transactional
     public DeliveryOrderVO pickupGoods(Long runnerId, Long deliveryId, String photoUrl,
@@ -162,25 +188,42 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         if (!delivery.getRunnerId().equals(runnerId)) {
             throw new BusinessException(403, "无权操作");
         }
-        if (delivery.getStatus() != DeliveryStatus.ACCEPTED.getCode()) {
-            throw new BusinessException("工单状态不正确");
-        }
 
+        // 条件更新防状态竞态：仅当工单仍为已接单才允许取货，失败说明状态已被其他线程改变
+        LocalDateTime pickupTime = LocalDateTime.now();
+        int updated = deliveryMapper.update(null, new LambdaUpdateWrapper<DeliveryOrder>()
+                .eq(DeliveryOrder::getId, deliveryId)
+                .eq(DeliveryOrder::getStatus, DeliveryStatus.ACCEPTED.getCode())
+                .set(DeliveryOrder::getStatus, DeliveryStatus.PICKED_UP.getCode())
+                .set(DeliveryOrder::getPickupPhoto, photoUrl)
+                .set(DeliveryOrder::getPickupTime, pickupTime));
+        if (updated == 0) {
+            throw new BusinessException("状态已变化，请刷新后重试");
+        }
         delivery.setStatus(DeliveryStatus.PICKED_UP.getCode());
         delivery.setPickupPhoto(photoUrl);
-        delivery.setPickupTime(LocalDateTime.now());
-        deliveryMapper.updateById(delivery);
+        delivery.setPickupTime(pickupTime);
 
-        // 更新主订单状态
+        // 更新主订单状态（条件更新：仅当仍为已派单才流转为已取货）
         Order order = orderMapper.selectById(delivery.getOrderId());
         if (order == null) throw new BusinessException("关联订单不存在");
+        int orderUpdated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getStatus, OrderStatus.ASSIGNED.getCode())
+                .set(Order::getStatus, OrderStatus.PICKED_UP.getCode())
+                .set(Order::getUpdateTime, LocalDateTime.now()));
+        if (orderUpdated == 0) {
+            throw new BusinessException("状态已变化，请刷新后重试");
+        }
         order.setStatus(OrderStatus.PICKED_UP.getCode());
-        orderMapper.updateById(order);
 
-        // 获取卖家地址用于取货
+        // 获取卖家地址用于取货（定点更新，避免整行覆盖冲掉刚流转的状态）
         if (delivery.getSellerAddr() == null) {
-            delivery.setSellerAddr(getUserDormitory(order.getSellerId()));
-            deliveryMapper.updateById(delivery);
+            String sellerAddr = getUserDormitory(order.getSellerId());
+            delivery.setSellerAddr(sellerAddr);
+            deliveryMapper.update(null, new LambdaUpdateWrapper<DeliveryOrder>()
+                    .eq(DeliveryOrder::getId, deliveryId)
+                    .set(DeliveryOrder::getSellerAddr, sellerAddr));
         }
 
         notifyOrderUsers(order, "goods_picked_up",
@@ -193,6 +236,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         return toVO(delivery);
     }
 
+    /** 交付员送达并上传拍照存证，通知买家确认收货 */
     @Override
     @Transactional
     public DeliveryOrderVO deliverGoods(Long runnerId, Long deliveryId, String photoUrl,
@@ -201,20 +245,38 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         if (!delivery.getRunnerId().equals(runnerId)) {
             throw new BusinessException(403, "无权操作");
         }
-        if (delivery.getStatus() != DeliveryStatus.PICKED_UP.getCode()) {
-            throw new BusinessException("工单状态不正确");
-        }
 
+        // 条件更新防状态竞态：仅当工单仍为已取货才允许送达，失败说明状态已被其他线程改变
+        LocalDateTime deliverTime = LocalDateTime.now();
+        int updated = deliveryMapper.update(null, new LambdaUpdateWrapper<DeliveryOrder>()
+                .eq(DeliveryOrder::getId, deliveryId)
+                .eq(DeliveryOrder::getStatus, DeliveryStatus.PICKED_UP.getCode())
+                .set(DeliveryOrder::getStatus, DeliveryStatus.DELIVERED.getCode())
+                .set(DeliveryOrder::getDeliverPhoto, photoUrl)
+                .set(DeliveryOrder::getDeliverTime, deliverTime));
+        if (updated == 0) {
+            throw new BusinessException("状态已变化，请刷新后重试");
+        }
         delivery.setStatus(DeliveryStatus.DELIVERED.getCode());
         delivery.setDeliverPhoto(photoUrl);
-        delivery.setDeliverTime(LocalDateTime.now());
-        deliveryMapper.updateById(delivery);
+        delivery.setDeliverTime(deliverTime);
 
-        // 更新主订单状态
+        // 更新主订单状态（条件更新：仅当仍为已取货才流转为已送达）
         Order order = orderMapper.selectById(delivery.getOrderId());
         if (order == null) throw new BusinessException("关联订单不存在");
+        int orderUpdated = orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getStatus, OrderStatus.PICKED_UP.getCode())
+                .set(Order::getStatus, OrderStatus.DELIVERED.getCode())
+                .set(Order::getUpdateTime, LocalDateTime.now()));
+        if (orderUpdated == 0) {
+            throw new BusinessException("状态已变化，请刷新后重试");
+        }
         order.setStatus(OrderStatus.DELIVERED.getCode());
-        orderMapper.updateById(order);
+
+        // 商品已送达：移除"超时未送达"等旧任务，投递超时自动确认收货任务（须在状态条件更新成功之后）
+        orderTimeoutService.cancelPendingTasks(order.getId());
+        orderTimeoutService.scheduleAutoConfirmReceive(order.getId());
 
         // 通知买家确认收货
         wsHandler.pushToUser(order.getBuyerId(), Map.of(
@@ -240,6 +302,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         return toVO(delivery);
     }
 
+    /** 派单大厅：按创建时间倒序返回待接单工单 */
     @Override
     public List<DeliveryOrderVO> getPendingOrders() {
         List<DeliveryOrder> list = deliveryMapper.selectList(
@@ -250,6 +313,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         return list.stream().map(this::toVO).collect(Collectors.toList());
     }
 
+    /** 我的工单列表（交付员视角），按创建时间倒序 */
     @Override
     public List<DeliveryOrderVO> getMyDeliveries(Long runnerId) {
         List<DeliveryOrder> list = deliveryMapper.selectList(

@@ -119,13 +119,18 @@
           <span>举报</span>
         </div>
       </div>
+      <!-- 右侧操作区：非本人在售可私聊/我想要；被发起交易（status=3）等非在售状态展示预订标记；本人按状态编辑或下架 -->
       <div class="bar-right">
-        <el-button v-if="!isOwner" size="large" @click="handleChat" :loading="wanting">
+        <el-button v-if="!isOwner && goods.status === 0" size="large" @click="handleChat" :loading="wanting">
           <el-icon><ChatDotRound /></el-icon> 私聊沟通
         </el-button>
-        <el-button v-if="!isOwner" type="danger" size="large" @click="handleWant" :loading="wanting">
+        <el-button v-if="!isOwner && goods.status === 0" type="danger" size="large" @click="handleWant" :loading="wanting">
           我想要
         </el-button>
+        <!-- 被发起交易即占位（发起交易时 status 0→3）：对所有人展示"已预订"，不再给购买入口 -->
+        <el-tag v-if="!isOwner && goods.status === 3" type="warning" size="large">已预订</el-tag>
+        <el-tag v-if="!isOwner && goods.status === 2" type="danger" size="large">已售出</el-tag>
+        <el-tag v-if="!isOwner && goods.status === 1" type="info" size="large">已下架</el-tag>
         <el-button v-if="isOwner && goods.status === 0" size="large" @click="showEdit = true">
           编辑
         </el-button>
@@ -220,6 +225,7 @@
 </template>
 
 <script setup>
+/** 商品详情页：展示商品与卖家信息，支持收藏/关注/私聊/我想要、编辑下架、举报与相似推荐 */
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -233,11 +239,13 @@ import { createReport } from '@/api/report'
 
 const route = useRoute()
 const router = useRouter()
+/** 商品详情；status 0-在售 1-已下架 2-已售出 3-已预订 */
 const goods = ref(null)
 const wanting = ref(false)
 const isFavorited = ref(false)
 const showEdit = ref(false)
 const showOffShelf = ref(false)
+/** 下架原因 sold-已卖出 cancel-不想卖了 other-其他 */
 const offShelfReason = ref('sold')
 const editForm = ref({ title: '', description: '', price: 0, condition: '' })
 const currentIndex = ref(0)
@@ -250,11 +258,14 @@ const reporting = ref(false)
 const reportForm = ref({ reason: '虚假商品', evidence: '' })
 const similarGoods = ref([])
 
+/** 是否为本人商品：本人不显示私聊/我想要/举报，改为编辑/下架入口 */
 const isOwner = computed(() => {
+  // userId 登录时写入 localStorage，与商品归属字段比对
   const userId = Number(localStorage.getItem('userId') || 0)
   return goods.value?.userId === userId
 })
 
+/** 相对上次调价的涨跌额，负数表示降价；priceHistory 为调价记录 JSON 串 */
 const priceChange = computed(() => {
   if (!goods.value?.priceHistory) return null
   try {
@@ -265,6 +276,7 @@ const priceChange = computed(() => {
   } catch { return null }
 })
 
+/** 商品图片列表，images 后端存 JSON 字符串（兼容数组）需容错解析 */
 const imageList = computed(() => {
   try {
     if (!goods.value?.images) return []
@@ -274,11 +286,13 @@ const imageList = computed(() => {
   } catch { return [] }
 })
 
+/** 时间格式化为中文年月日 */
 function formatTime(t) {
   if (!t) return ''
   return new Date(t).toLocaleDateString('zh-CN')
 }
 
+/** 解析评价标签，tags 后端存 JSON 字符串，失败返回空数组 */
 function parseTags(tags) {
   if (!tags) return []
   try {
@@ -286,6 +300,7 @@ function parseTags(tags) {
   } catch { return [] }
 }
 
+/** 拉取卖家评价与统计（仅展示前 5 条），失败静默不影响详情主流程 */
 async function fetchSellerReviews(userId) {
   try {
     const [reviewsRes, statsRes] = await Promise.all([
@@ -299,6 +314,7 @@ async function fetchSellerReviews(userId) {
   } catch (e) { /* ignore */ }
 }
 
+/** 我想要：以商品为由发起会话并跳转聊天页 */
 async function handleWant() {
   wanting.value = true
   try {
@@ -309,6 +325,7 @@ async function handleWant() {
   }
 }
 
+/** 私聊沟通：与我想要共用同一会话入口，后端按商品建立会话 */
 async function handleChat() {
   wanting.value = true
   try {
@@ -319,6 +336,7 @@ async function handleChat() {
   }
 }
 
+/** 切换收藏状态 */
 async function handleFavorite() {
   try {
     if (isFavorited.value) {
@@ -333,8 +351,10 @@ async function handleFavorite() {
   } catch (e) { /* handled */ }
 }
 
+/** 卖家关注状态，进入页面时由 checkFollow 初始化 */
 const isFollowing = ref(false)
 
+/** 切换对卖家的关注状态 */
 async function handleFollow() {
   try {
     if (isFollowing.value) {
@@ -349,6 +369,7 @@ async function handleFollow() {
   } catch (e) { /* handled */ }
 }
 
+/** 复制页面链接分享，无 clipboard API（非安全上下文）时静默跳过 */
 function handleShare() {
   if (navigator.clipboard) {
     navigator.clipboard.writeText(window.location.href)
@@ -356,6 +377,7 @@ function handleShare() {
   }
 }
 
+/** 提交举报，targetType 固定为 goods 与后端举报协议约定 */
 async function handleSubmitReport() {
   reporting.value = true
   try {
@@ -372,6 +394,7 @@ async function handleSubmitReport() {
   finally { reporting.value = false }
 }
 
+/** 取商品首图，images 为 JSON 字符串需容错解析 */
 function getFirstImage(item) {
   try {
     const imgs = typeof item.images === 'string' ? JSON.parse(item.images) : item.images
@@ -379,6 +402,7 @@ function getFirstImage(item) {
   } catch { return '' }
 }
 
+/** 加载相似商品（取推荐接口结果，剔除当前商品后最多 5 个） */
 async function loadSimilar() {
   try {
     const res = await getRecommendGoods({ page: 1, size: 6 })
@@ -386,8 +410,10 @@ async function loadSimilar() {
   } catch { /* ignore */ }
 }
 
+/** 确认下架：DELETE 接口即下架商品，成功后返回列表 */
 async function handleDelist() {
   try {
+    // 接口支持 reason 查询参数，当前仅本地收集下架原因未提交
     await deleteGoods(goods.value.id)
     ElMessage.success('商品已下架')
     showOffShelf.value = false
@@ -395,6 +421,7 @@ async function handleDelist() {
   } catch (e) { /* handled */ }
 }
 
+/** 提交商品编辑 */
 async function handleSaveEdit() {
   try {
     await request.put(`/api/goods/${goods.value.id}`, editForm.value)
@@ -406,6 +433,7 @@ async function handleSaveEdit() {
   } catch (e) { /* handled */ }
 }
 
+/** 初始化：加载详情后并行查询收藏/关注状态，再拉取评价与相似商品 */
 onMounted(async () => {
   const res = await getGoodsDetail(route.params.id)
   goods.value = res.data

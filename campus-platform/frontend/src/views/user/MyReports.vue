@@ -12,6 +12,7 @@
       <el-radio-button label="2">已驳回</el-radio-button>
     </el-radio-group>
 
+    <!-- 举报记录列表，展示被举报对象、原因与处理结果 -->
     <div v-loading="loading">
       <div v-for="item in list" :key="item.id" class="report-card">
         <div class="report-header">
@@ -42,6 +43,7 @@
 </template>
 
 <script setup>
+/** 我的举报页：分页展示当前用户提交的举报记录，支持按处理状态筛选 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMyReports } from '@/api/report'
@@ -55,11 +57,16 @@ const pageSize = 20
 const total = ref(0)
 const statusFilter = ref('')
 
+/** 0-待处理 1-已处理 2-已驳回（与后端举报状态枚举一致） */
 const statusText = (s) => ({ 0: '待处理', 1: '已处理', 2: '已驳回' }[s] || '未知')
+/** 状态标签配色：待处理橙、已处理绿、已驳回红 */
 const statusType = (s) => ({ 0: 'warning', 1: 'success', 2: 'danger' }[s] || 'info')
+/** 举报对象类型：goods-商品 user-用户 message-消息 post-帖子 comment-评论 */
 const targetTypeText = (t) => ({ goods: '商品', user: '用户', message: '消息', post: '帖子', comment: '评论' }[t] || t)
+/** 各对象类型对应的标签配色，未知类型回退为空标签 */
 const targetTypeTag = (t) => ({ goods: 'warning', user: 'danger', message: 'info', post: '', comment: 'success' }[t] || '')
 
+/** 分页加载举报记录；statusFilter 为空串代表全部，此时不传 status 参数 */
 async function loadData() {
   loading.value = true
   try {

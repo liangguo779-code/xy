@@ -6,6 +6,7 @@ import com.campus.trade.entity.DeliveryOrder;
 
 import java.math.BigDecimal;
 
+/** 跑腿配送服务，管理配送工单的创建、接单、取货与送达全流程 */
 public interface DeliveryService extends IService<DeliveryOrder> {
 
     /**

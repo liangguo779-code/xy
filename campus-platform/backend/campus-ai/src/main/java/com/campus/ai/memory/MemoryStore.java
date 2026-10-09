@@ -49,9 +49,12 @@ public class MemoryStore implements ChatMemoryStore {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
+    /** Redis key 前缀，完整 key 为前缀 + sessionId。 */
     private static final String KEY_PREFIX = "ai:chat:memory:";
+    /** 缓存滑动过期时间（分钟），每次读写都会续期。 */
     private static final long TTL_MINUTES = 30;
 
+    /** 取会话对应的窗口式记忆（保留最近 maxMessages 条），缓存未命中时先回填 Redis。 */
     public ChatMemory getOrCreate(Long sessionId, int maxMessages) {
         String memoryId = String.valueOf(sessionId);
         String key = KEY_PREFIX + memoryId;
@@ -73,6 +76,7 @@ public class MemoryStore implements ChatMemoryStore {
                 .build();
     }
 
+    /** 读透缓存：Redis 有则刷新 TTL 后返回，miss 则从 MySQL 加载并回填。 */
     @Override
     public List<ChatMessage> getMessages(Object memoryId) {
         String key = KEY_PREFIX + memoryId;
@@ -88,6 +92,7 @@ public class MemoryStore implements ChatMemoryStore {
         return deserializeMessages(json);
     }
 
+    /** 仅更新 Redis 缓存；MySQL 落库由 AiChatController 的 saveMessage 负责，职责分离。 */
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
         String key = KEY_PREFIX + memoryId;
@@ -95,6 +100,7 @@ public class MemoryStore implements ChatMemoryStore {
         // 持久化由 AiChatController.historyService.saveMessage() 负责
     }
 
+    /** 删除会话的 Redis 记忆缓存。 */
     @Override
     public void deleteMessages(Object memoryId) {
         String key = KEY_PREFIX + memoryId;
@@ -121,6 +127,7 @@ public class MemoryStore implements ChatMemoryStore {
         }
     }
 
+    /** 按时间升序读取会话消息并映射为 LangChain4j 消息（只保留 user/assistant 两种角色）。 */
     private List<ChatMessage> loadFromDb(Long sessionId) {
         List<AiChatMessage> dbMessages = messageMapper.selectList(
                 new LambdaQueryWrapper<AiChatMessage>()

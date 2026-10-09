@@ -11,6 +11,7 @@
       <el-empty description="暂无收货地址，请添加" />
     </div>
 
+    <!-- 地址卡片列表，含编辑、设默认、删除操作 -->
     <div v-for="addr in addresses" :key="addr.id" class="address-card">
       <el-card shadow="hover">
         <div class="address-info">
@@ -64,6 +65,7 @@
 </template>
 
 <script setup>
+/** 收货地址管理页：地址的增删改查与设默认，isDefault 用 0/1 表示，后端保证默认地址唯一 */
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -76,6 +78,7 @@ const editingId = ref(null)
 const submitting = ref(false)
 const formRef = ref()
 
+/** 表单数据；isDefault 与后端字段一致用 0/1 而非布尔 */
 const form = ref({
   contactName: '',
   phone: '',
@@ -96,6 +99,7 @@ async function loadAddresses() {
   addresses.value = res.data || []
 }
 
+/** 打开弹窗：editingId 为空表示新增，非空表示编辑对应地址 */
 function openForm(addr) {
   if (addr) {
     editingId.value = addr.id
@@ -107,6 +111,7 @@ function openForm(addr) {
   showForm.value = true
 }
 
+/** 保存地址：按 editingId 区分新增/更新，校验失败由表单内联提示，接口报错由拦截器统一弹错 */
 async function handleSubmit() {
   await formRef.value.validate()
   submitting.value = true
@@ -127,6 +132,7 @@ async function handleSubmit() {
   }
 }
 
+/** 设为默认地址时需同步取消其他默认（后端保证唯一） */
 async function handleSetDefault(addr) {
   await updateAddress({ ...addr, isDefault: 1 })
   ElMessage.success('已设为默认')

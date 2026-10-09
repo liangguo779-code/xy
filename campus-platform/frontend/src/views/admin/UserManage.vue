@@ -8,6 +8,7 @@
                     clearable @keyup.enter="loadData" />
         </div>
       </template>
+      <!-- 用户列表：角色 0-普通用户 1-管理员 2-交付员，状态 0-禁用 1-正常 -->
       <el-table :data="list" stripe>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="username" label="用户名" />
@@ -43,6 +44,10 @@
 </template>
 
 <script setup>
+/**
+ * 管理端用户管理：关键字搜索用户分页列表，可启用或禁用账号
+ * 用户状态 0-禁用 1-正常；角色 0-普通用户 1-管理员 2-交付员（与后端 User 实体一致）
+ */
 import { ref, onMounted } from 'vue'
 import { getUsers, updateUserStatus } from '@/api/admin'
 import { ElMessage } from 'element-plus'
@@ -52,12 +57,14 @@ const keyword = ref('')
 const page = ref(1)
 const total = ref(0)
 
+/** 加载用户分页列表，固定每页 20 条，与分页组件 page-size 对应 */
 async function loadData() {
   const res = await getUsers({ keyword: keyword.value, page: page.value, size: 20 })
   list.value = res.data?.records || []
   total.value = res.data?.total || 0
 }
 
+/** 切换账号状态：1-正常 取反为 0-禁用，成功后重新拉取当前页 */
 async function toggleStatus(row) {
   const newStatus = row.status === 1 ? 0 : 1
   await updateUserStatus(row.id, newStatus)

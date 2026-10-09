@@ -14,10 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/** 收货地址服务实现，维护默认地址唯一性（同一用户至多一条默认地址） */
 @Service
 @RequiredArgsConstructor
 public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> implements AddressService {
 
+    /** 查询用户全部地址，默认地址与最近更新的排在前面 */
     @Override
     public List<Address> getMyAddresses(Long userId) {
         return list(new LambdaQueryWrapper<Address>()
@@ -26,6 +28,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
                 .orderByDesc(Address::getUpdateTime));
     }
 
+    /** 按 ID 查询地址并校验归属，不存在或非本人地址统一按"地址不存在"处理，避免泄露他人地址 */
     @Override
     public Address getAddress(Long userId, Long addressId) {
         Address address = getById(addressId);
@@ -35,6 +38,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         return address;
     }
 
+    /** 新增地址；事务保证"清默认 + 落库"原子，避免出现多条默认地址 */
     @Override
     @Transactional
     public Address createAddress(Long userId, AddressReq req) {
@@ -61,6 +65,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         return address;
     }
 
+    /** 修改地址，按 req.id 定位并校验归属；事务边界同新增，保证默认地址唯一 */
     @Override
     @Transactional
     public Address updateAddress(Long userId, AddressReq req) {
@@ -85,6 +90,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         return existing;
     }
 
+    /** 删除地址；若删的是默认地址则自动补位，保证用户始终有默认地址可用 */
     @Override
     public void deleteAddress(Long userId, Long addressId) {
         Address address = getAddress(userId, addressId);
@@ -103,6 +109,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         }
     }
 
+    /** 查询用户默认地址（isDefault=1），没有默认地址时返回 null */
     @Override
     public Address getDefaultAddress(Long userId) {
         return getOne(new LambdaQueryWrapper<Address>()
@@ -110,6 +117,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
                 .eq(Address::getIsDefault, 1));
     }
 
+    /** 将该用户所有默认地址标记清零，供设置新默认前调用 */
     private void clearDefault(Long userId) {
         update(new LambdaUpdateWrapper<Address>()
                 .eq(Address::getUserId, userId)

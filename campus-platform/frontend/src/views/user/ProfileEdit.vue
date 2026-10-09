@@ -2,6 +2,7 @@
   <div class="profile-edit">
     <h2>个人信息</h2>
 
+    <!-- 基本资料：头像直传成功后仅回填地址，与其他字段一起由"保存修改"统一提交 -->
     <el-card>
       <el-form :model="form" label-width="80px" style="max-width: 500px">
         <el-form-item label="头像">
@@ -42,6 +43,7 @@
       </el-form>
     </el-card>
 
+    <!-- 修改密码：成功后清除登录态，需用新密码重新登录 -->
     <el-card style="margin-top: 20px">
       <template #header>修改密码</template>
       <el-form :model="pwdForm" :rules="pwdRules" ref="pwdFormRef" label-width="80px" style="max-width: 500px">
@@ -57,6 +59,7 @@
       </el-form>
     </el-card>
 
+    <!-- 危险区域：注销账号不可恢复，经弹窗二次确认后才调用删除接口 -->
     <el-card style="margin-top: 20px; border-color: #f56c6c">
       <template #header><span style="color: #f56c6c">危险操作</span></template>
       <p style="color: #909399; margin-bottom: 16px">注销账号后，您的数据将被清除且无法恢复。</p>
@@ -70,10 +73,12 @@
 </template>
 
 <script setup>
+/** 个人资料页：编辑头像与基本资料，另提供修改密码与注销账号功能 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getUserInfo } from '@/api/auth'
+import { validatePasswordStrength } from '@/utils/password'
 import { useUserStore } from '@/stores/user'
 import { Camera } from '@element-plus/icons-vue'
 
@@ -99,14 +104,16 @@ const pwdRules = {
   oldPassword: [{ required: true, message: '请输入旧密码', trigger: 'blur' }],
   newPassword: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度6-20位', trigger: 'blur' }
+    { validator: validatePasswordStrength, trigger: 'blur' }
   ]
 }
 
+/** el-upload 自行发请求不走 axios 拦截器，需手动附加 token */
 const uploadHeaders = {
   Authorization: `Bearer ${localStorage.getItem('token')}`
 }
 
+/** 进入页面拉取用户资料回填表单，null 字段转为空串避免输入框显示 undefined */
 onMounted(async () => {
   const res = await getUserInfo()
   const user = res.data
@@ -118,6 +125,7 @@ onMounted(async () => {
   }
 })
 
+/** 头像上传成功仅回填 URL，仍需点"保存修改"才会真正写入资料 */
 function handleAvatarSuccess(res) {
   if (res.code === 200) {
     form.value.avatar = res.data.url
@@ -125,6 +133,8 @@ function handleAvatarSuccess(res) {
   }
 }
 
+/** 保存基本资料，成功后刷新 store 中的用户信息 */
+// 这几个接口未走统一封装的 request，手动携带 Authorization 并按 data.code 判断成败
 async function handleSave() {
   saving.value = true
   try {
@@ -150,6 +160,7 @@ async function handleSave() {
   }
 }
 
+/** 修改密码成功后退出登录并跳转登录页，需用新密码重新登录 */
 async function handleChangePwd() {
   await pwdFormRef.value.validate()
   changingPwd.value = true
@@ -177,6 +188,7 @@ async function handleChangePwd() {
   }
 }
 
+/** 注销账号（不可恢复），成功后清除登录态并跳回登录页 */
 async function handleDeleteAccount() {
   try {
     const res = await fetch('/api/user/account', {

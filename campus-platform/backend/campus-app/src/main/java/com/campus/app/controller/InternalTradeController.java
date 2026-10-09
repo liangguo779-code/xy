@@ -14,7 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 内部调用接口（供 admin 服务通过 Feign 调用统计数据）
+ * 内部统计查询接口，当前由 AdminController 直接聚合，保留给未来服务拆分使用。
+ * <p>当前无调用方：全库无 Feign，前端与各业务模块均未请求 /internal/**。
  */
 @RestController
 @RequestMapping("/internal/trade")
@@ -26,11 +27,12 @@ public class InternalTradeController {
     private final DisputeMapper disputeMapper;
     private final ReportMapper reportMapper;
 
+    /** 获取商品统计数据 */
     @GetMapping("/stats/goods")
     public R<GoodsStatsVO> getGoodsStats() {
         long total = goodsMapper.selectCount(null);
-        long onSale = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 0));
-        long pendingReview = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 3));
+        long onSale = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 0)); // status=0 在售
+        long pendingReview = goodsMapper.selectCount(new LambdaQueryWrapper<Goods>().eq(Goods::getStatus, 3)); // status=3 待审核
         GoodsStatsVO vo = new GoodsStatsVO();
         vo.setTotal(total);
         vo.setOnSale(onSale);
@@ -38,11 +40,12 @@ public class InternalTradeController {
         return R.ok(vo);
     }
 
+    /** 获取订单统计数据 */
     @GetMapping("/stats/orders")
     public R<OrderStatsVO> getOrderStats() {
         long total = orderMapper.selectCount(null);
-        long pending = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 0));
-        long completed = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 3));
+        long pending = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 0)); // status=0 待支付/待处理
+        long completed = orderMapper.selectCount(new LambdaQueryWrapper<Order>().eq(Order::getStatus, 3)); // status=3 已完成
         OrderStatsVO vo = new OrderStatsVO();
         vo.setTotal(total);
         vo.setPending(pending);
@@ -50,6 +53,7 @@ public class InternalTradeController {
         return R.ok(vo);
     }
 
+    /** 获取纠纷统计数据 */
     @GetMapping("/stats/disputes")
     public R<DisputeStatsVO> getDisputeStats() {
         long total = disputeMapper.selectCount(null);
@@ -60,6 +64,7 @@ public class InternalTradeController {
         return R.ok(vo);
     }
 
+    /** 获取举报统计数据 */
     @GetMapping("/stats/reports")
     public R<ReportStatsVO> getReportStats() {
         long total = reportMapper.selectCount(null);

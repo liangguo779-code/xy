@@ -4,6 +4,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.campus.common.entity.BanRecord;
 
+/**
+ * 用户/IP 封禁服务。业务模块在交易、发帖等入口调用 checkXxxBan 判断是否放行，
+ * 管理端通过 banXxx/unban 维护封禁记录。
+ */
 public interface BanService extends IService<BanRecord> {
 
     /**

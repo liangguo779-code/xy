@@ -9,9 +9,13 @@ import com.campus.common.mapper.NotificationMapper;
 import com.campus.common.service.NotificationService;
 import org.springframework.stereotype.Service;
 
+/**
+ * 站内通知服务实现。所有写操作都限定 userId 归属，防止越权标记他人通知。
+ */
 @Service
 public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Notification> implements NotificationService {
 
+    /** 落库一条未读通知 */
     @Override
     public void send(Long userId, String type, String title, String content, String extra) {
         Notification n = new Notification();
@@ -24,6 +28,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         save(n);
     }
 
+    /** 按创建时间倒序分页拉取本人通知 */
     @Override
     public Page<Notification> getMyNotifications(Long userId, int page, int size) {
         return page(new Page<>(page, size), new LambdaQueryWrapper<Notification>()
@@ -31,6 +36,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                 .orderByDesc(Notification::getCreateTime));
     }
 
+    /** 单条已读：id 与 userId 双条件，避免改到他人的通知 */
     @Override
     public void markAsRead(Long userId, Long notificationId) {
         update(new LambdaUpdateWrapper<Notification>()
@@ -39,6 +45,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                 .set(Notification::getIsRead, 1));
     }
 
+    /** 全部已读：只更新未读记录，减少无效写 */
     @Override
     public void markAllAsRead(Long userId) {
         update(new LambdaUpdateWrapper<Notification>()

@@ -18,7 +18,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 内部调用接口（供其他微服务通过 Feign 调用）
+ * 内部用户信息查询接口（用户/收货地址查询 + 统计），保留给未来服务拆分使用。
+ * <p>当前无调用方：全库无 Feign，前端与各业务模块均未请求 /internal/**；其中统计数据当前由 AdminController 直接聚合。
  */
 @RestController
 @RequestMapping("/internal/user")
@@ -30,6 +31,7 @@ public class InternalUserController {
     @Autowired
     private AddressMapper addressMapper;
 
+    /** 根据用户ID查询用户信息 */
     @GetMapping("/{id}")
     public R<UserVO> getUserById(@PathVariable Long id) {
         User user = userMapper.selectById(id);
@@ -41,6 +43,7 @@ public class InternalUserController {
         return R.ok(vo);
     }
 
+    /** 批量查询用户信息 */
     @PostMapping("/batch")
     public R<List<UserVO>> getUsersByIds(@RequestBody List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
@@ -55,6 +58,7 @@ public class InternalUserController {
         return R.ok(vos);
     }
 
+    /** 获取用户昵称，昵称为空时回退到用户名 */
     @GetMapping("/{id}/nickname")
     public R<String> getNickname(@PathVariable Long id) {
         User user = userMapper.selectById(id);
@@ -64,6 +68,7 @@ public class InternalUserController {
         return R.ok(user.getNickname() != null ? user.getNickname() : user.getUsername());
     }
 
+    /** 获取用户简要信息（昵称、头像、角色） */
     @GetMapping("/{id}/simple")
     public R<UserSimpleVO> getUserSimple(@PathVariable Long id) {
         User user = userMapper.selectById(id);
@@ -78,6 +83,7 @@ public class InternalUserController {
         return R.ok(vo);
     }
 
+    /** 获取用户默认收货地址，无默认地址时返回 null 数据 */
     @GetMapping("/address/{userId}/default")
     public R<AddressVO> getDefaultAddress(@PathVariable Long userId) {
         Address address = addressMapper.selectOne(
@@ -94,6 +100,7 @@ public class InternalUserController {
         return R.ok(vo);
     }
 
+    /** 根据地址ID查询收货地址，校验地址归属该用户 */
     @GetMapping("/address/{userId}/{addressId}")
     public R<AddressVO> getAddress(@PathVariable Long userId, @PathVariable Long addressId) {
         Address address = addressMapper.selectOne(
@@ -109,6 +116,7 @@ public class InternalUserController {
         return R.ok(vo);
     }
 
+    /** 获取用户统计数据 */
     @GetMapping("/stats")
     public R<UserStatsVO> getUserStats() {
         long total = userMapper.selectCount(null);

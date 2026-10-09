@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.campus.trade.entity.Follow;
 import org.apache.ibatis.annotations.Mapper;
 
+/** 用户关注关系表 Mapper，提供基础 CRUD */
 @Mapper
 public interface FollowMapper extends BaseMapper<Follow> {
 }

@@ -32,20 +32,29 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @RequiredArgsConstructor
 public class Bm25Index {
 
+    /** BM25 词频饱和参数：越大越强调高频词（经典取值 1.2）。 */
     private static final double K1 = 1.2d;
+    /** BM25 文档长度归一化强度：1 表示完全按长度归一化，0 表示不归一化（经典取值 0.75）。 */
     private static final double B = 0.75d;
 
     private final com.campus.ai.config.AiProperties props;
 
+    /** 读写锁：检索（读）与重建/删除（写）并发执行，写操作互斥、读操作共享。 */
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    /** 全部文档（含父分块）。 */
     private List<Doc> docs = new ArrayList<>();
+    /** 与 docs 一一对应的分词结果，避免检索时重复分词。 */
     private List<List<String>> docTokens = new ArrayList<>();
+    /** 文档频率表 term → 含该词的文档数，用于计算 IDF。 */
     private Map<String, Integer> df = new HashMap<>();
+    /** 全库文档平均长度（词数），BM25 长度归一化分母。 */
     private double avgDocLen = 0d;
     private int totalDocs = 0;
 
+    /** jieba 分词器实例，SEARCH 模式倾向切出细粒度词以提高召回。 */
     private final transient JiebaSegmenter segmenter = new JiebaSegmenter();
 
+    /** 启动时加载 BM25 快照；不存在或损坏则留空，等待 rebuild 流程填充。 */
     @PostConstruct
     void loadOrBuild() {
         Path snapshot = snapshotPath();
@@ -90,6 +99,7 @@ public class Bm25Index {
         replaceAll(currentChunksPlus(chunks));
     }
 
+    /** 把当前索引内容还原为 ChunkDto 列表并追加新增部分，供 addAll 全量重建使用。 */
     private List<ChunkDto> currentChunksPlus(List<ChunkDto> added) {
         List<ChunkDto> all = new ArrayList<>(docs.size() + added.size());
         for (int i = 0; i < docs.size(); i++) {
@@ -105,6 +115,7 @@ public class Bm25Index {
         return all;
     }
 
+    /** 按文档来源删除全部相关分块，并重算 DF 与平均文档长度后持久化。 */
     public void removeBySource(String source) {
         lock.writeLock().lock();
         try {
@@ -133,6 +144,13 @@ public class Bm25Index {
         }
     }
 
+    /**
+     * BM25 关键词检索，返回分数最高的 topK 个子分块。
+     *
+     * @param query            查询文本（内部做 jieba 分词）
+     * @param topK             返回条数上限
+     * @param disabledSources  禁用的知识来源，命中则跳过（可为 null）
+     */
     public List<Hit> search(String query, int topK, Set<String> disabledSources) {
         lock.readLock().lock();
         try {
@@ -166,6 +184,22 @@ public class Bm25Index {
         return totalDocs;
     }
 
+    /** 索引中出现过的全部 source（去重），供重建时发现磁盘已删除的孤儿来源。 */
+    public Set<String> listSources() {
+        lock.readLock().lock();
+        try {
+            Set<String> out = new HashSet<>();
+            for (Doc d : docs) out.add(d.source);
+            return out;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * 标准 BM25 公式：对查询中每个词累加 idf * 词频饱和归一化项。
+     * IDF 用 log(1 + (N-n+0.5)/(n+0.5)) 平滑，避免罕见词 IDF 爆炸或负值。
+     */
     private double bm25Score(List<String> q, List<String> d) {
         Map<String, Integer> tf = new HashMap<>();
         for (String t : d) tf.merge(t, 1, Integer::sum);
@@ -182,6 +216,7 @@ public class Bm25Index {
         return score;
     }
 
+    /** jieba 分词并转小写，过滤空串与单字（单字噪声大且对 BM25 区分度低）。 */
     private List<String> tokenize(String text) {
         if (text == null || text.isEmpty()) return List.of();
         // jieba 的 process 返回 Iterable<SegToken> —— 提取 .word 字段。
@@ -277,7 +312,10 @@ public class Bm25Index {
                 .replace("\\\\", "\\");
     }
 
+    /** 检索命中结果。 */
     public record Hit(String source, int chunkIndex, String content, double score) {}
+    /** 索引中的单个文档（分块）。 */
     private record Doc(String source, int chunkIndex, String content, boolean isParent) {}
+    /** 评分中间结果，idx 指向 docs 下标。 */
     private record Scored(int idx, double score) {}
 }

@@ -29,7 +29,7 @@ spring:
     host: smtp.qq.com
     port: 465
     username: ${MAIL_USERNAME:3242262405@qq.com}
-    password: ${MAIL_PASSWORD:pmgbbgstydkschff}
+    password: ${MAIL_PASSWORD:llslcrnsjrsvcicb}
     properties:
       mail.smtp.ssl.enable: true
 
@@ -37,7 +37,7 @@ sa-token:
   token-name: Authorization
   token-prefix: Bearer
   timeout: 86400
-  active-timeout: -1
+  active-timeout: 7200
   is-concurrent: true
   is-share: true
   token-style: uuid
@@ -57,34 +57,34 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# AI service
-# `ai.service.url` is the legacy property consumed by the old Python proxy in
-# AiServiceImpl; it is no longer required by the in-process LangChain4j
-# implementation but is kept so existing operator shell history and docker
-# compose files (which still set AI_SERVICE_URL) do not break silently. It can
-# be removed once the compose file no longer references it.
-ai:
-  service:
-    url: ${AI_SERVICE_URL:}
-
 # Campus AI — in-process LangChain4j configuration. Values flow in from
 # campus-platform/.env via the dotenv-maven-plugin (see backend/campus-app/pom.xml).
+# 注：legacy 的 ai.service.url（旧 Python 代理）已无任何代码消费，配置块已删除。
 campus:
+  moderation:
+    # 关键词过滤为纯本地词库（sensitive_word 表），无外部检测引擎依赖
+    # AI 审核阈值：违规置信度≥verify 自动拦截；合规置信度≥clear 自动放行；其余转人审
+    ai-verify-threshold: 0.90
+    ai-clear-threshold: 0.85
   ai:
     home: ${AI_HOME:./campus-ai/runtime}
     knowledge:
       dir: ${AI_KNOWLEDGE_DIR:${campus.ai.home}/knowledge}
       max-file-size: 20MB
-      allowed-suffixes: .md,.txt,.pdf,.docx,.doc
+      # .doc 旧二进制格式 DocumentConverter 不支持（仅支持 md/txt/pdf/docx），不允许上传
+      allowed-suffixes: .md,.txt,.pdf,.docx
       chunk-size: 800
+      # 超长块切分时并入下一块开头的尾部字符数（见 MarkdownSectionSplitter）
       chunk-overlap: 50
-      # Score threshold for retry: for cosine (BGE), lower == more similar.
-      # Default 0.05 is permissive (always accept); raise to be stricter.
-      score-threshold: 0.05
+      # 换词重试阈值：cross-encoder 分数越低匹配越好（与 AiProperties 同域）。
+      # 高于此值（匹配差）触发一次换词重试。原值 0.05 位于分数域之外，
+      # 使 RagOrchestrator 的重试路径永远不可达，现校准为 -0.2。
+      score-threshold: -0.2
       bm25-k: 60
     vector:
       index-name: campus_knowledge
-      embedding-model: ${AI_EMBEDDING_MODEL:BAAI/bge-base-zh-v1.5}
+      # 必须与 EmbeddingConfig 实际加载的 BgeSmallZhEmbeddingModel（Xenova/bge-small-zh，512 维）一致
+      embedding-model: ${AI_EMBEDDING_MODEL:Xenova/bge-small-zh}
       embedding-dim: 512
       rerank-topk: 5
       retrieve-topk: 10
@@ -111,6 +111,15 @@ langchain4j:
 # Delivery
 delivery:
   service-fee: 5.00
+
+# Trade: 延时任务（Redis zset 延时队列）
+trade:
+  request:
+    expire-after: 12h              # 发起交易请求有效期，超时自动作废、可重新发起
+  order:
+    auto-confirm-receive-after: 7d # 送达后超时未确认收货自动确认
+  delay-queue:
+    poll-interval-ms: 5000         # 延时队列轮询间隔（毫秒）
 
 # File storage
 storage:

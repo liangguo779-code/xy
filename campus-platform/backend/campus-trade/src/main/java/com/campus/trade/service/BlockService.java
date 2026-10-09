@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.campus.trade.entity.Block;
 import com.campus.common.dto.UserVO;
 
+/** 用户拉黑服务，管理拉黑关系并提供消息/内容过滤所需的拉黑判断 */
 public interface BlockService extends IService<Block> {
 
     /** 拉黑用户 */

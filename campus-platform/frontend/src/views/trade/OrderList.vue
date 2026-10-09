@@ -18,6 +18,7 @@
       <el-radio-button label="4">已取消</el-radio-button>
     </el-radio-group>
 
+    <!-- 订单卡片列表，点击进入订单详情 -->
     <div class="order-cards">
       <div v-for="order in orders" :key="order.id" class="order-card" @click="goDetail(order)">
         <div class="order-card-header">
@@ -47,15 +48,22 @@
 </template>
 
 <script setup>
+/**
+ * 我的订单页：按角色（我买到的/我卖出的）与状态筛选订单，点击卡片进入详情
+ * 状态约定：0-待卖家确认 1-待核销 3-已完成 4-已取消；配送侧 5-协商跑腿费 6-待派单 7-待取货 8-配送中 9-待确认收货
+ */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMyOrders } from '@/api/order'
 
 const router = useRouter()
 const orders = ref([])
+/** 状态筛选值：空-全部，inProgress-后端聚合的进行中状态，3-已完成，4-已取消 */
 const statusFilter = ref('')
+/** 角色筛选：buyer-我买到的，seller-我卖出的，透传给后端 role 参数 */
 const roleFilter = ref('buyer')
 
+/** 订单状态映射 el-tag 颜色，数字为后端状态码 */
 const statusType = (s) => {
   if (s === 3) return 'success'
   if (s === 4) return 'danger'
@@ -64,8 +72,11 @@ const statusType = (s) => {
   return 'info'
 }
 
+/** 按角色与状态筛选加载订单 */
 async function loadOrders() {
+  // 列表暂未接分页控件，固定取前 50 条
   const params = { page: 1, size: 50 }
+  // inProgress 是后端聚合条件，覆盖所有未完结状态
   if (statusFilter.value === 'inProgress') {
     params.inProgress = true
   } else if (statusFilter.value) {
@@ -76,6 +87,7 @@ async function loadOrders() {
   orders.value = res.data?.records || []
 }
 
+/** 跳转订单详情页，路由为 /orders/:id */
 function goDetail(row) {
   router.push(`/orders/${row.id}`)
 }

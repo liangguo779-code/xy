@@ -7,18 +7,25 @@ import com.campus.trade.entity.Review;
 
 import java.util.List;
 
+/** 评价服务，管理订单评价的增删改查、申诉与回复 */
 public interface ReviewService extends IService<Review> {
 
+    /** 发表评价 */
     void createReview(Long reviewerId, CreateReviewReq req);
 
+    /** 修改自己的评价 */
     void updateReview(Long reviewerId, Long reviewId, CreateReviewReq req);
 
+    /** 删除自己的评价 */
     void deleteReview(Long reviewerId, Long reviewId);
 
+    /** 查询某用户收到的全部评价 */
     List<Review> getReviewsForUser(Long targetId);
 
+    /** 查询某订单下的评价 */
     List<Review> getReviewsByOrder(Long orderId);
 
+    /** 计算某用户的平均评分（无评价时返回 null） */
     Double getAverageRating(Long userId);
 
     /** 申诉评价 */

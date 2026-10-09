@@ -1,5 +1,6 @@
 <template>
   <el-container class="admin-layout">
+    <!-- 管理端侧边栏：按业务域分组的菜单导航，index 直接对应路由路径 -->
     <el-aside width="220px" class="aside">
       <div class="aside-logo">
         <span class="aside-logo-icon">⚙️</span>
@@ -39,6 +40,10 @@
             <el-icon><Bell /></el-icon>
             <span>举报管理</span>
           </el-menu-item>
+          <el-menu-item index="/admin/moderation">
+            <el-icon><Filter /></el-icon>
+            <span>内容安全</span>
+          </el-menu-item>
           <el-menu-item index="/admin/bans">
             <el-icon><Lock /></el-icon>
             <span>封禁管理</span>
@@ -61,6 +66,7 @@
       </el-menu>
     </el-aside>
     <el-container>
+      <!-- 顶栏：后台标题与返回前台入口 -->
       <el-header class="header">
         <span class="header-title">校园生态平台 · 管理后台</span>
         <el-button text class="back-btn" @click="router.push('/')">
@@ -76,14 +82,19 @@
 </template>
 
 <script setup>
+/**
+ * 管理后台布局：左侧分组菜单 + 顶栏 + 内容区，内容区渲染各管理页子路由
+ * 菜单项 index 即路由路径，配合 el-menu 的 router 模式完成跳转
+ */
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document, Star
+  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document, Star, Filter
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
+/** 当前高亮菜单项，直接取路由路径以对齐菜单 index */
 const activeMenu = computed(() => route.path)
 </script>
 
@@ -116,6 +127,7 @@ const activeMenu = computed(() => route.path)
   color: #fff;
 }
 
+/* Element Plus 菜单默认浅色，此处覆盖样式以适配深色侧边栏 */
 .aside-menu {
   border-right: none;
   background: transparent;

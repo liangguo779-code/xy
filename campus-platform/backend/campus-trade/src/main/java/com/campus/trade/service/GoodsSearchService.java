@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/** 商品搜索服务，基于 Elasticsearch 提供多条件过滤、全文检索、排序与关键字高亮 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -27,6 +28,12 @@ public class GoodsSearchService {
     private final ElasticsearchClient esClient;
     private final GoodsMapper goodsMapper;
 
+    /**
+     * 多条件搜索商品
+     * @param keyword 搜索关键字（命中标题权重更高）
+     * @param sortBy 排序方式：price_asc/price_desc/hottest，空则按相关度
+     * @return 按 ES 结果顺序回填 MySQL 完整数据的分页列表
+     */
     public Page<Goods> searchGoods(String keyword, Long categoryId, Integer type,
                                     BigDecimal minPrice, BigDecimal maxPrice,
                                     String condition, String sortBy,
@@ -49,9 +56,14 @@ public class GoodsSearchService {
                         .field("condition").value(condition))));
             }
 
-            // 只搜上架商品
-            filters.add(Query.of(q -> q.term(t -> t
-                    .field("status").value(0))));
+            // 可检索范围：在售(0) 或 已预订(3 且有占位持有者)——被发起交易的商品展示"已预订"而非隐藏；
+            // 待审核(status=3 且无占位)、已下架、已售出不参与检索
+            filters.add(Query.of(q -> q.bool(b -> b
+                    .should(s -> s.term(t -> t.field("status").value(0)))
+                    .should(s -> s.bool(bb -> bb
+                            .must(m -> m.term(t -> t.field("status").value(3)))
+                            .must(m -> m.exists(e -> e.field("reserveRef")))))
+                    .minimumShouldMatch("1"))));
 
             // 价格范围
             if (minPrice != null || maxPrice != null) {

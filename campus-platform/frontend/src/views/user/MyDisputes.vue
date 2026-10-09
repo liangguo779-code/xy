@@ -13,6 +13,7 @@
       <el-radio-button label="3">已驳回</el-radio-button>
     </el-radio-group>
 
+    <!-- 纠纷卡片列表，含证据图预览与关联订单入口 -->
     <div v-loading="loading">
       <div v-for="item in list" :key="item.id" class="dispute-card">
         <div class="dispute-header">
@@ -47,6 +48,7 @@
 </template>
 
 <script setup>
+/** 我的纠纷页：分页展示用户发起的交易纠纷，支持按状态筛选并跳转关联订单 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMyDisputes } from '@/api/dispute'
@@ -60,15 +62,19 @@ const pageSize = 20
 const total = ref(0)
 const statusFilter = ref('')
 
+/** 0-待处理 1-处理中 2-已解决 3-已驳回（与后端纠纷状态枚举一致） */
 const statusText = (s) => ({ 0: '待处理', 1: '处理中', 2: '已解决', 3: '已驳回' }[s] || '未知')
+/** 状态标签配色：待处理橙、处理中默认、已解决绿、已驳回红 */
 const statusType = (s) => ({ 0: 'warning', 1: '', 2: 'success', 3: 'danger' }[s] || 'info')
 
+/** 证据图字段兼容 JSON 字符串与数组，解析失败返回空数组避免渲染中断 */
 function parseImages(images) {
   if (!images) return []
   try { return typeof images === 'string' ? JSON.parse(images) : images }
   catch { return [] }
 }
 
+/** 分页加载纠纷记录；statusFilter 为空串代表全部，此时不传 status 参数 */
 async function loadData() {
   loading.value = true
   try {

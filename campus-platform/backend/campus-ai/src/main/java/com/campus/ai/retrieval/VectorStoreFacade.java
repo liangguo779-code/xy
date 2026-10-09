@@ -37,6 +37,7 @@ public class VectorStoreFacade {
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
     private final AiProperties props;
 
+    /** 启动时确保 ES 索引存在；不存在则按配置的向量维度创建 dense_vector 映射。 */
     @PostConstruct
     void ensureIndex() {
         try {
@@ -60,6 +61,7 @@ public class VectorStoreFacade {
     private String indexName() { return props.getVector().getIndexName(); }
     private float[] embed(String text) { return embeddingModel.embed(text).content().vector(); }
 
+    /** 批量写入分块（每批 100 条，批间歇 50ms 削峰）；文档 ID 为 source_chunkIndex，天然幂等覆盖。 */
     public void addAll(List<ChunkDto> chunks) {
         if (chunks == null || chunks.isEmpty()) return;
         try {
@@ -95,6 +97,7 @@ public class VectorStoreFacade {
         } catch (Exception e) { log.error("addAll failed: {}", e.getMessage(), e); throw new RuntimeException(e); }
     }
 
+    /** 删除指定来源下不在 newIds 中的旧文档（rebuild 时清理切分变更后残留的分块）。 */
     public void removeStaleBySource(String source, Set<String> newIds) {
         try {
             SearchRequest.Builder sb = new SearchRequest.Builder().index(indexName()).size(10000).query(q -> q.term(t -> t.field("source").value(source)));
@@ -109,9 +112,29 @@ public class VectorStoreFacade {
         } catch (Exception e) { log.warn("removeStale failed: {}", e.getMessage()); }
     }
 
+    /** 按来源删除全部分块。 */
     public void removeBySource(String source) {
         try { esClient.deleteByQuery(d -> d.index(indexName()).query(q -> q.term(t -> t.field("source").value(source)))); }
         catch (Exception e) { log.warn("removeBySource failed: {}", e.getMessage()); }
+    }
+
+    /** 索引中出现过的全部 source（去重），供重建时发现磁盘已删除的孤儿来源。 */
+    public Set<String> listSources() {
+        try {
+            SearchResponse<Map> resp = esClient.search(s -> s
+                    .index(indexName())
+                    .size(0)
+                    .aggregations("srcs", a -> a.terms(t -> t.field("source").size(10000))),
+                    Map.class);
+            Set<String> out = new HashSet<>();
+            for (var b : resp.aggregations().get("srcs").sterms().buckets().array()) {
+                out.add(b.key().stringValue());
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("listSources failed: {}", e.getMessage());
+            return Set.of();
+        }
     }
 
     /**
@@ -138,8 +161,12 @@ public class VectorStoreFacade {
                 String sectionPath = src.containsKey("section_path") ? (String)src.get("section_path") : "";
                 // 跳过父分块 —— 只用子分块做精确检索。
                 if (isParent) continue;
+                String source = (String)src.get("source");
+                // 先过滤禁用来源，再做 topK 截断：
+                // 旧顺序（先截断后过滤）会把名额浪费在禁用文件上，导致结果数不足 topK。
+                if (disabledSources != null && !disabledSources.isEmpty() && disabledSources.contains(source)) continue;
                 out.add(new Hit(
-                        (String)src.get("source"),
+                        source,
                         src.containsKey("chunk_index") ? ((Number)src.get("chunk_index")).intValue() : 0,
                         (String)src.get("text"),
                         h.score(),
@@ -149,7 +176,6 @@ public class VectorStoreFacade {
                 ));
                 if (out.size() >= topK) break;
             }
-            if (disabledSources != null && !disabledSources.isEmpty()) out.removeIf(hit -> disabledSources.contains(hit.source()));
             return out;
         } catch (Exception e) { log.warn("search failed: {}", e.getMessage()); return List.of(); }
     }
@@ -183,9 +209,16 @@ public class VectorStoreFacade {
         }
     }
 
+    /** 索引中的文档总数，查询失败返回 -1。 */
     public int count() { try { return (int) esClient.count(c -> c.index(indexName())).count(); } catch (Exception e) { return -1; } }
 
+    /**
+     * 向量库中的分块命中。
+     *
+     * @param parentIndex 父分块下标，-1 表示无父分块
+     */
     public record Hit(String source, int chunkIndex, String content, double score, int parentIndex, boolean isParent, String sectionPath) {
+        /** 无章节路径的便捷构造器。 */
         public Hit(String source, int chunkIndex, String content, double score, int parentIndex, boolean isParent) {
             this(source, chunkIndex, content, score, parentIndex, isParent, "");
         }

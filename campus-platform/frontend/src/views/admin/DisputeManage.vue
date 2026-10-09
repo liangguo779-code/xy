@@ -18,6 +18,7 @@
         <el-radio-button label="3">已驳回</el-radio-button>
       </el-radio-group>
 
+      <!-- 纠纷列表：状态 0-待处理 1-处理中 2-已解决 3-已驳回 -->
       <el-table :data="list" stripe v-loading="loading">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="orderId" label="订单ID" width="90">
@@ -63,6 +64,7 @@
 </template>
 
 <script setup>
+/** 纠纷处理页：分页查询纠纷并做受理/解决/驳回流转，三种操作都走 resolveDispute，靠 result 文案加 status 区分 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAdminDisputes, resolveDispute } from '@/api/admin'
@@ -73,9 +75,12 @@ const list = ref([])
 const loading = ref(false)
 const page = ref(1)
 const total = ref(0)
+/** 状态筛选：空串为全部，其余为 0/1/2/3 枚举值 */
 const statusFilter = ref('')
+// 搜索框仅触发重新加载，后端列表接口只收 status/page/size，keyword 未随请求下发
 const keyword = ref('')
 
+/** 加载纠纷分页列表，size 固定 20 与分页组件一致 */
 async function loadData() {
   loading.value = true
   try {
@@ -88,12 +93,14 @@ async function loadData() {
   finally { loading.value = false }
 }
 
+/** 受理：状态推进到 1-处理中，受理动作也写入 result 便于追溯 */
 async function handleStatus(id, status) {
   await resolveDispute(id, { result: '已受理', status })
   ElMessage.success('已受理')
   loadData()
 }
 
+/** 解决：status 置 2，管理员未填方案时写入默认结论文案 */
 async function handleResolve(row) {
   const { value } = await ElMessageBox.prompt('请输入解决方案', '解决纠纷', { inputType: 'textarea' })
   if (value === undefined) return
@@ -102,6 +109,7 @@ async function handleResolve(row) {
   loadData()
 }
 
+/** 驳回：status 置 3，未填原因时用默认文案 */
 async function handleReject(row) {
   const { value } = await ElMessageBox.prompt('驳回原因', '驳回纠纷', { inputType: 'textarea' })
   if (value === undefined) return

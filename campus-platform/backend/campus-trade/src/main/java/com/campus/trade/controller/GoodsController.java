@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 
+/** 商品接口：浏览/搜索/发布/管理自己的商品、擦亮与浏览历史 */
 @RestController
 @RequestMapping("/api/goods")
 @RequiredArgsConstructor
@@ -59,22 +60,26 @@ public class GoodsController {
             Long userId = StpUtil.getLoginIdAsLong();
             return R.ok(goodsService.recommendGoods(userId, page, size));
         } catch (Exception e) {
+            // 未登录或取用户失败时退化为通用推荐
             return R.ok(goodsService.recommendGoods(page, size));
         }
     }
 
+    /** 商品详情（游客也可访问，登录时返回个性化信息） */
     @GetMapping("/{id}")
     public R<Goods> detail(@PathVariable Long id) {
         Long userId = StpUtil.isLogin() ? StpUtil.getLoginIdAsLong() : null;
         return R.ok(goodsService.getGoodsDetail(id, userId));
     }
 
+    /** 发布商品 */
     @PostMapping
     public R<Goods> create(@RequestBody Goods goods) {
         Long userId = StpUtil.getLoginIdAsLong();
         return R.ok(goodsService.createGoods(userId, goods));
     }
 
+    /** 编辑自己的商品 */
     @PutMapping("/{id}")
     public R<Void> update(@PathVariable Long id, @RequestBody Goods goods) {
         Long userId = StpUtil.getLoginIdAsLong();
@@ -82,6 +87,7 @@ public class GoodsController {
         return R.ok();
     }
 
+    /** 下架/删除自己的商品，可附下架原因 */
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id, @RequestParam(required = false) String reason) {
         Long userId = StpUtil.getLoginIdAsLong();

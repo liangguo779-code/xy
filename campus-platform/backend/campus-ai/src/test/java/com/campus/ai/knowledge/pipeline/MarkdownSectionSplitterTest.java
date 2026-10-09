@@ -7,13 +7,15 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/** MarkdownSectionSplitter 分块行为测试：标题切分、层级路径、无标题兜底、超长再切、目录剥离。 */
 class MarkdownSectionSplitterTest {
 
     private final MarkdownSectionSplitter splitter = new MarkdownSectionSplitter();
 
     @Test
     void splitsOnTopLevelHeadings() {
-        String md = "# A\n\nalpha body\n\n# B\n\nbeta body\n";
+        // 正文需 ≥ MIN_CHUNK_SIZE（30 字符），否则按"碎块无检索价值"被丢弃。
+        String md = "# A\n\nalpha body with enough characters to survive the minimum chunk filter.\n\n# B\n\nbeta body with enough characters to survive the minimum chunk filter.\n";
         List<ChunkDto> chunks = splitter.split("test.md", md, 500, 50);
         assertEquals(2, chunks.size());
         assertEquals("A", chunks.get(0).getSectionTitle());
@@ -24,13 +26,14 @@ class MarkdownSectionSplitterTest {
 
     @Test
     void buildsSectionPathFromHierarchy() {
-        // # Top body spans ## Mid body and ### Leaf body — the body for Top is everything
-        // until the next SAME-level heading. The result: Top gets 1 chunk (the inner body),
-        // Mid gets 1 chunk ("inner"), Leaf gets 1 chunk ("deep") = 3 chunks total.
-        String md = "# Top\n\n## Mid\n\ninner\n\n### Leaf\n\ndeep\n";
+        // 每个标题的 body 截止到下一个标题（任意层级）：
+        // Top 的 body 为空（其后紧跟 ## Mid）不产生分块，Mid 与 Leaf 各产生 1 个分块。
+        // sectionPath 路径锚定最近的 # 顶级标题向下拼接：Top / Mid、Top / Mid / Leaf。
+        String md = "# Top\n\n## Mid\n\ninner content that is long enough to survive the minimum chunk filter.\n\n### Leaf\n\ndeep content that is long enough to survive the minimum chunk filter.\n";
         List<ChunkDto> chunks = splitter.split("test.md", md, 500, 50);
-        assertTrue(chunks.size() >= 2, "Should have at least 2 chunks");
-        // Check that "inner" and "deep" content appear
+        assertEquals(2, chunks.size());
+        assertEquals("Top / Mid", chunks.get(0).getSectionPath());
+        assertEquals("Top / Mid / Leaf", chunks.get(1).getSectionPath());
         boolean hasInner = chunks.stream().anyMatch(c -> c.getContent().contains("inner"));
         boolean hasDeep = chunks.stream().anyMatch(c -> c.getContent().contains("deep"));
         assertTrue(hasInner, "inner content should appear");
@@ -64,6 +67,36 @@ class MarkdownSectionSplitterTest {
     void emptyMarkdownProducesNoChunks() {
         assertTrue(splitter.split("test.md", "", 500, 50).isEmpty());
         assertTrue(splitter.split("test.md", null, 500, 50).isEmpty());
+    }
+
+    @Test
+    void overlapsTailBetweenOversizedChunks() {
+        // 超长单段落走 splitBySize 路径：相邻子分块应共享上一块尾部 chunkOverlap 个字符。
+        // 用无标题文档（__root__ 路径无章节前缀），子分块内容与 splitBySize 输出一一对应。
+        StringBuilder para = new StringBuilder();
+        for (int i = 0; i < 30; i++) {
+            para.append("这是用于测试分块重叠的长句编号").append(i).append("，句子内容足够长以便按句切分。");
+        }
+        int chunkSize = 120;
+        int overlap = 30;
+        List<ChunkDto> chunks = splitter.split("test.md", para.toString(), chunkSize, overlap);
+        List<ChunkDto> children = chunks.stream().filter(c -> !c.isParent()).toList();
+        assertTrue(children.size() >= 2, "超长段落应被切成多个子分块");
+        for (int i = 0; i + 1 < children.size(); i++) {
+            String cur = children.get(i).getContent();
+            String next = children.get(i + 1).getContent();
+            int ov = Math.min(overlap, cur.length());
+            String tail = cur.substring(cur.length() - ov);
+            assertTrue(next.startsWith(tail),
+                    "子分块 " + (i + 1) + " 应以上一分块尾部 " + ov + " 字符开头");
+        }
+    }
+
+    @Test
+    void keepsTinyChunksDiscarded() {
+        // 重叠不会救活碎块：正文 < 30 字符的分块仍被丢弃。
+        String md = "# A\n\nshort body\n";
+        assertTrue(splitter.split("test.md", md, 500, 50).isEmpty());
     }
 
     @Test

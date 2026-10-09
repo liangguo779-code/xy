@@ -26,6 +26,7 @@ export function confirmReceive(id) {
 }
 
 /** 确认配送安排(协商后确认跑腿费付款方) */
+// deliveryFeePayer 枚举：buyer-买家承担 seller-卖家承担
 export function confirmDelivery(id, deliveryFeePayer) {
   return request.put(`/api/orders/${id}/confirm-delivery`, null, { params: { deliveryFeePayer } })
 }

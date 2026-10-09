@@ -30,6 +30,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/** 商品服务实现，负责商品检索/推荐/详情与发布、编辑、上下架等生命周期管理，并同步 ES 索引 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -47,6 +48,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     private final GoodsSearchService goodsSearchService;
     private final GoodsIndexService goodsIndexService;
 
+    /** 商品列表：有关键字时优先 ES 检索，ES 失败或无结果自动降级 MySQL 模糊查询 */
     @Override
     public Page<Goods> listGoods(String keyword, Long categoryId, Long userId, Integer type,
                                  BigDecimal minPrice, BigDecimal maxPrice,
@@ -74,12 +76,15 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return mysqlResult;
     }
 
+    /** MySQL 降级查询：在售 + 已预订商品（已预订展示角标），支持多条件过滤与价格/热度/最新排序 */
     private Page<Goods> listGoodsFromMySQL(String keyword, Long categoryId, Long userId, Integer type,
                                             BigDecimal minPrice, BigDecimal maxPrice,
                                             String condition, String sortBy,
                                             int page, int size) {
+        // 可见范围：在售(0) 或 已预订(3 且有占位持有者)；待审核/下架/售出不出现
         LambdaQueryWrapper<Goods> wrapper = new LambdaQueryWrapper<Goods>()
-                .eq(Goods::getStatus, 0);
+                .and(w -> w.eq(Goods::getStatus, 0)
+                        .or(x -> x.eq(Goods::getStatus, 3).isNotNull(Goods::getReserveRef)));
 
         if (userId != null) {
             wrapper.eq(Goods::getUserId, userId);
@@ -124,11 +129,13 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 热门推荐（无个性化），委托给带 userId 的重载 */
     @Override
     public Page<Goods> recommendGoods(int page, int size) {
         return recommendGoods(null, page, size);
     }
 
+    /** 推荐商品：有收藏记录时按收藏分类过滤，否则按浏览/想要热度排序 */
     @Override
     public Page<Goods> recommendGoods(Long userId, int page, int size) {
         LambdaQueryWrapper<Goods> wrapper = new LambdaQueryWrapper<Goods>()
@@ -157,11 +164,13 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 商品详情（匿名访问，不记浏览历史） */
     @Override
     public Goods getGoodsDetail(Long id) {
         return getGoodsDetail(id, null);
     }
 
+    /** 商品详情：浏览数+1，并记录浏览历史（1 小时内同商品去重） */
     @Override
     public Goods getGoodsDetail(Long id, Long userId) {
         Goods goods = getById(id);
@@ -190,6 +199,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return goods;
     }
 
+    /** 发布商品：未选分类自动归入"其他"，服务端强制上架并同步 ES 索引 */
     @Override
     public Goods createGoods(Long userId, Goods goods) {
         // 未选分类时自动归入"其他"
@@ -221,6 +231,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return goods;
     }
 
+    /** 编辑商品：仅本人在售商品可改，白名单字段更新，记录价格历史并在降价时通知收藏者 */
     @Override
     @Transactional
     public void updateGoods(Long userId, Long goodsId, Goods goods) {
@@ -283,15 +294,22 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
             }
         }
 
+        // 防止整行覆盖把并发变更的状态冲掉：status 不参与本次更新（置空后 MP 跳过该列），
+        // 否则编辑保存可能把已预订（3）的旧读值 0 写回去，造成一货两卖（P3-8 同类防护）
+        Integer statusSnapshot = existing.getStatus(); // 前面已校验为在售(0)
+        existing.setStatus(null);
         updateById(existing);
+        existing.setStatus(statusSnapshot); // 回填内存对象，供 ES 索引使用
         goodsIndexService.indexGoods(existing);
     }
 
+    /** 下架商品（无原因） */
     @Override
     public void deleteGoods(Long userId, Long goodsId) {
         deleteGoods(userId, goodsId, null);
     }
 
+    /** 下架商品并记录原因，有进行中订单时禁止下架，同时移除 ES 索引 */
     public void deleteGoods(Long userId, Long goodsId, String reason) {
         Goods existing = getById(goodsId);
         if (existing == null || !existing.getUserId().equals(userId)) {
@@ -309,13 +327,20 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         if (activeOrders > 0) {
             throw new BusinessException("该商品有进行中的订单，请先完成或取消订单");
         }
-        update(new LambdaUpdateWrapper<Goods>()
+        // 条件更新防 check-then-act 竞态：仅当商品仍在售才允许下架，
+        // 防止与并发下单预订（0→3）交错把已预订商品误下架（P3-8）
+        boolean updated = update(new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, goodsId)
+                .eq(Goods::getStatus, 0)
                 .set(Goods::getStatus, 1)
                 .set(Goods::getOffReason, reason));
+        if (!updated) {
+            throw new BusinessException("商品状态已变化，请刷新后重试");
+        }
         goodsIndexService.deleteGoods(goodsId);
     }
 
+    /** 标记已售出，有进行中订单时禁止操作，同时移除 ES 索引 */
     @Override
     public void markAsSold(Long userId, Long goodsId) {
         Goods existing = getById(goodsId);
@@ -334,12 +359,19 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         if (activeOrders > 0) {
             throw new BusinessException("该商品有进行中的订单，请先完成或取消订单");
         }
-        update(new LambdaUpdateWrapper<Goods>()
+        // 条件更新防 check-then-act 竞态：仅当商品仍在售才允许标记售出，
+        // 防止与并发下单预订（0→3）交错把已预订商品误标为已售出（P3-8）
+        boolean updated = update(new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, goodsId)
+                .eq(Goods::getStatus, 0)
                 .set(Goods::getStatus, 2));
+        if (!updated) {
+            throw new BusinessException("商品状态已变化，请刷新后重试");
+        }
         goodsIndexService.deleteGoods(goodsId);
     }
 
+    /** 擦亮商品（刷新 refreshTime 提升排序），每天限 1 次 */
     @Override
     public void refreshGoods(Long userId, Long goodsId) {
         Goods existing = getById(goodsId);
@@ -363,6 +395,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         goodsIndexService.indexGoods(existing);
     }
 
+    /** 重新上架已下架商品，并刷新排序时间与 ES 索引 */
     @Override
     public void reshelfGoods(Long userId, Long goodsId) {
         Goods existing = getById(goodsId);
@@ -382,6 +415,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         goodsIndexService.indexGoods(existing);
     }
 
+    /** 我的商品列表，可按状态过滤，按发布时间倒序 */
     @Override
     public Page<Goods> listMyGoods(Long userId, Integer status, int page, int size) {
         LambdaQueryWrapper<Goods> wrapper = new LambdaQueryWrapper<Goods>()
@@ -393,6 +427,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 浏览历史分页列表，按浏览时间倒序，已删除商品自动跳过 */
     @Override
     public Page<Goods> getBrowseHistory(Long userId, int page, int size) {
         // 查询浏览历史，去重取最新

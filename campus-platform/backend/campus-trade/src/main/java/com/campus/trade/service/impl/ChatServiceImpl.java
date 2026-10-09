@@ -17,6 +17,7 @@ import com.campus.trade.mapper.ChatSessionMapper;
 import com.campus.trade.mapper.GoodsMapper;
 import com.campus.trade.service.BlockService;
 import com.campus.trade.service.ChatService;
+import com.campus.trade.service.TradeRequestTimeoutService;
 import com.campus.trade.websocket.ChatWebSocketHandler;
 import com.campus.common.entity.User;
 import com.campus.common.mapper.UserMapper;
@@ -31,6 +32,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/** 聊天服务实现，负责会话建立、消息收发与撤回，并做封禁/拉黑/防诈骗校验 */
 @Service
 public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage> implements ChatService {
 
@@ -41,11 +43,13 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
     private final BlockService blockService;
+    private final TradeRequestTimeoutService tradeRequestTimeoutService;
 
     public ChatServiceImpl(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper,
                            GoodsMapper goodsMapper, UserMapper userMapper,
                            @Lazy ChatWebSocketHandler wsHandler, BanService banService,
-                           BlockService blockService) {
+                           BlockService blockService,
+                           TradeRequestTimeoutService tradeRequestTimeoutService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.goodsMapper = goodsMapper;
@@ -53,8 +57,10 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         this.wsHandler = wsHandler;
         this.banService = banService;
         this.blockService = blockService;
+        this.tradeRequestTimeoutService = tradeRequestTimeoutService;
     }
 
+    /** 创建或复用商品会话：校验商品可售与拉黑关系，兼容买卖双方发起 */
     @Override
     @Transactional
     public ChatSessionVO startSession(Long userId, Long goodsId, Long otherUserId) {
@@ -129,6 +135,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         return toSessionVO(session, userId);
     }
 
+    /** 我的会话列表（买家或卖家身份均可见），按最近消息时间倒序 */
     @Override
     public List<ChatSessionVO> getMySessions(Long userId) {
         List<ChatSession> sessions = sessionMapper.selectList(
@@ -144,6 +151,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
                 .collect(Collectors.toList());
     }
 
+    /** 分页拉取会话历史消息，仅会话双方可访问 */
     @Override
     public List<ChatMessageVO> getMessages(Long sessionId, Long userId, int page, int size) {
         ChatSession session = sessionMapper.selectById(sessionId);
@@ -163,6 +171,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
                 .collect(Collectors.toList());
     }
 
+    /** 发送消息：校验封禁/拉黑/敏感词后落库并 WebSocket 推送双方 */
     @Override
     @Transactional
     public ChatMessageVO sendMessage(Long senderId, SendMessageReq req) {
@@ -202,6 +211,8 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         msg.setContent(req.getContent());
         msg.setExtra(req.getExtra());
         msg.setIsRead(0);
+        // 交易消息在此挂钩库存与延时任务：请求扣减库存占位并投递过期任务，拒绝释放占位并撤销任务
+        tradeRequestTimeoutService.onMessageSending(msg);
         messageMapper.insert(msg);
 
         // 更新会话最后消息
@@ -227,6 +238,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         return vo;
     }
 
+    /** 将会话中对方发来的未读消息批量置为已读 */
     @Override
     @Transactional
     public void markAsRead(Long sessionId, Long userId) {
@@ -237,6 +249,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
                 .set(ChatMessage::getIsRead, 1));
     }
 
+    /** 撤回消息：仅本人、文本/图片类型、2 分钟内可撤回，撤回后通知双方 */
     @Override
     @Transactional
     public ChatMessageVO recallMessage(Long userId, Long messageId) {

@@ -11,12 +11,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 管理端评价服务实现，处理评价申诉与屏蔽/恢复 */
 @Service
 @RequiredArgsConstructor
 public class AdminReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> implements AdminReviewService {
 
     private final ReviewMapper reviewMapper;
 
+    /** 分页查询申诉列表，appealStatus 为空时查所有申诉中的记录（appealStatus>0） */
     @Override
     public Page<Review> listAppeals(Integer appealStatus, int page, int size) {
         LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
@@ -29,6 +31,7 @@ public class AdminReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> im
         return page(new Page<>(page, size), wrapper);
     }
 
+    /** 处理申诉：仅申诉中（appealStatus=1）可处理，通过则同时屏蔽评价 */
     @Override
     @Transactional
     public void handleAppeal(Long reviewId, Long adminId, boolean approved, String result) {
@@ -40,6 +43,7 @@ public class AdminReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> im
             throw new BusinessException("该评价没有待处理的申诉");
         }
         if (approved) {
+            // 申诉通过：屏蔽该评价
             review.setAppealStatus(2);
             review.setStatus(0);
         } else {
@@ -48,6 +52,7 @@ public class AdminReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> im
         reviewMapper.updateById(review);
     }
 
+    /** 直接屏蔽/恢复评价：status 1-正常 0-已屏蔽 */
     @Override
     @Transactional
     public void updateStatus(Long reviewId, int status) {
@@ -59,6 +64,7 @@ public class AdminReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> im
         reviewMapper.updateById(review);
     }
 
+    /** 统计评价总数/申诉中数/已屏蔽数 */
     @Override
     public long[] getStats() {
         long total = count();

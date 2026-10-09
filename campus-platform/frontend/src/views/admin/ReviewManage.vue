@@ -20,6 +20,7 @@
         <el-radio-button label="3">已驳回</el-radio-button>
       </el-radio-group>
 
+      <!-- 评价列表：申诉状态 0-无申诉 1-申诉中 2-已通过 3-已驳回 -->
       <el-table :data="list" stripe v-loading="loading">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="orderId" label="订单" width="80">
@@ -78,6 +79,7 @@
 </template>
 
 <script setup>
+/** 评价管理页：查看评价与申诉，处理申诉（通过会连带屏蔽评价），并可手动屏蔽/恢复评价 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getReviewAppeals, handleReviewAppeal, updateReviewStatus, getReviewStats } from '@/api/admin'
@@ -88,9 +90,12 @@ const list = ref([])
 const loading = ref(false)
 const page = ref(1)
 const total = ref(0)
+/** 申诉状态筛选：空串为全部，1-申诉中 2-已通过 3-已驳回 */
 const appealFilter = ref('')
+/** 顶部统计：total 评价总数、appealed 待处理申诉数、hidden 已屏蔽数 */
 const stats = ref(null)
 
+/** 加载评价分页列表，appealStatus 空串表示不按申诉状态过滤 */
 async function loadData() {
   loading.value = true
   try {
@@ -103,6 +108,7 @@ async function loadData() {
   finally { loading.value = false }
 }
 
+/** 加载统计数据，与列表独立请求，互不阻塞 */
 async function loadStats() {
   try {
     const res = await getReviewStats()
@@ -110,6 +116,7 @@ async function loadStats() {
   } catch { /* ignore */ }
 }
 
+/** 通过申诉会连带屏蔽评价，故同步刷新列表与统计 */
 async function handleApprove(row) {
   await ElMessageBox.confirm('确认通过该申诉？评价将被屏蔽', '处理申诉')
   await handleReviewAppeal(row.id, { approved: true, result: '申诉通过，评价已屏蔽' })
@@ -118,6 +125,7 @@ async function handleApprove(row) {
   loadStats()
 }
 
+/** 驳回申诉：评价维持原状，仅记录申诉结论 */
 async function handleReject(row) {
   const { value } = await ElMessageBox.prompt('驳回原因', '驳回申诉', { inputType: 'textarea' })
   if (value === undefined) return
@@ -126,6 +134,7 @@ async function handleReject(row) {
   loadData()
 }
 
+/** 屏蔽评价：status 置 0，用户端不再展示 */
 async function handleHide(row) {
   await ElMessageBox.confirm('确认屏蔽该评价？', '屏蔽评价')
   await updateReviewStatus(row.id, { status: 0 })
@@ -134,6 +143,7 @@ async function handleHide(row) {
   loadStats()
 }
 
+/** 恢复评价：status 置 1 */
 async function handleRestore(row) {
   await updateReviewStatus(row.id, { status: 1 })
   ElMessage.success('评价已恢复')

@@ -256,6 +256,11 @@ if [ -n "$ADMIN_TOKEN" ]; then
         -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 &
     echo "  ✅  ES 商品索引重建已触发（后台运行）"
 
+    # ES 论坛帖子索引重建（异步，不等结果）
+    curl -s -X POST http://localhost:9000/api/admin/forum/reindex \
+        -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 &
+    echo "  ✅  ES 论坛帖子索引重建已触发（后台运行）"
+
     # RAG 知识库重建（异步，不等结果）
     MD_COUNT=$(find "$PROJECT_DIR/backend/campus-ai/src/main/resources/knowledge" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l)
     if [ "$MD_COUNT" -gt 0 ]; then

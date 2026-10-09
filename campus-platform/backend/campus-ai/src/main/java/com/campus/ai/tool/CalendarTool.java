@@ -22,6 +22,10 @@ import java.time.LocalDate;
 @Component
 public class CalendarTool {
 
+    /**
+     * 按当前月份推断学期（9 月起为秋季学期、2-7 月为春季学期、其余为寒假），
+     * 支持 current/next/具体学期号三种查询。
+     */
     @Tool("查询校历信息：学期开始/结束日期、考试周、寒暑假时间。参数 semester 为 'current'（当前学期）、'next'（下学期）或具体如 '2025-2026-1'。")
     public String queryCalendar(String semester) {
         log.info("Tool call: queryCalendar(semester={})", semester);
@@ -66,6 +70,7 @@ public class CalendarTool {
                 semester, currentDates, examWeek);
     }
 
+    /** 返回各类考试的参考时间（静态推算），具体安排提示用户关注教务处通知。 */
     @Tool("查询考试安排相关时间：期末考试周、补考时间、四六级考试时间。")
     public String queryExamSchedule(String examType) {
         log.info("Tool call: queryExamSchedule(type={})", examType);
@@ -79,6 +84,8 @@ public class CalendarTool {
             return String.format("本学期期末考试预计在第16-17周（%d年6月下旬~7月上旬），具体安排请关注教务处通知。", year);
         }
         if ("四六级".equals(examType) || "cet".equals(examType)) {
+            // 推算"当月第三个周六"的日期：15 + (6 - 当月1日星期几) % 7，
+            // 即从 15 日附近偏移到第一个周六后再加一周多，落在第三个周六。
             return String.format("CET-4/6 考试通常在每年6月和12月的第三个周六举行。%d年预计时间：6月%d日、12月%d日。报名请关注教务处通知。",
                     year, 15 + (6 - LocalDate.of(year, 6, 1).getDayOfWeek().getValue()) % 7,
                     15 + (12 - LocalDate.of(year, 12, 1).getDayOfWeek().getValue()) % 7);

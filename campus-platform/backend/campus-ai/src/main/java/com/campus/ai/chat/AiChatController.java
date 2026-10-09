@@ -41,8 +41,10 @@ public class AiChatController {
     private final AiChatHistoryService historyService;
     private final ObjectMapper objectMapper;
 
+    /** SSE 专用线程池：流式生成是长任务，不能占用 Tomcat 请求线程。 */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
+    /** 同步问答：无 sessionId 时自动以问题前 30 字创建新会话，问答双方消息均落库。 */
     @PostMapping("/chat")
     public R<ChatResponse> chat(@Valid @RequestBody ChatRequest request) {
         Long userId = safeUserId();
@@ -68,6 +70,7 @@ public class AiChatController {
         return R.ok(response);
     }
 
+    /** SSE 流式问答：后台线程执行 RAG 流程，按 stage/token/sources/done 事件推送，结束后保存助手消息。 */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatStream(@Valid @RequestBody ChatRequest request,
                                   jakarta.servlet.http.HttpServletResponse response) {
@@ -103,6 +106,15 @@ public class AiChatController {
                                 sendJson(emitter, Map.of("type", "sources", "sources", event.payload()));
                             }
                             case "token" -> sendJson(emitter, Map.of("type", "token", "content", event.payload()));
+                            case "correction" -> {
+                                // P0-2：引用修正事件透传。前端 onCorrection 依赖 cleaned 等字段平铺在事件顶层
+                                Map<String, Object> correction = new java.util.LinkedHashMap<>();
+                                correction.put("type", "correction");
+                                if (event.payload() instanceof Map<?, ?> payload) {
+                                    payload.forEach((k, v) -> correction.put(String.valueOf(k), v));
+                                }
+                                sendJson(emitter, correction);
+                            }
                             case "done" -> sendJson(emitter, Map.of("type", "done"));
                         }
                     } catch (Exception e) {
@@ -138,24 +150,28 @@ public class AiChatController {
         return emitter;
     }
 
+    /** 当前用户的会话列表。 */
     @GetMapping("/sessions")
     public R<List<AiChatSessionVO>> sessions() {
         Long userId = safeUserId();
         return R.ok(historyService.getMySessions(userId));
     }
 
+    /** 指定会话的消息列表（校验归属，防止越权查看他人会话）。 */
     @GetMapping("/sessions/{sessionId}/messages")
     public R<List<AiChatMessageVO>> messages(@PathVariable Long sessionId) {
         Long userId = safeUserId();
         return R.ok(historyService.getMessages(sessionId, userId));
     }
 
+    /** 手动创建新会话（title 可选）。 */
     @PostMapping("/sessions")
     public R<AiChatSessionVO> createSession(@RequestBody(required = false) CreateSessionReq req) {
         Long userId = safeUserId();
         return R.ok(historyService.createSession(userId, req != null ? req.getTitle() : null));
     }
 
+    /** 删除会话及其消息。 */
     @DeleteMapping("/sessions/{sessionId}")
     public R<Void> deleteSession(@PathVariable Long sessionId) {
         Long userId = safeUserId();
@@ -163,6 +179,7 @@ public class AiChatController {
         return R.ok();
     }
 
+    /** 重命名会话标题。 */
     @PutMapping("/sessions/{sessionId}/title")
     public R<Void> updateTitle(@PathVariable Long sessionId, @RequestBody UpdateTitleReq req) {
         Long userId = safeUserId();
@@ -170,6 +187,7 @@ public class AiChatController {
         return R.ok();
     }
 
+    /** 取当前登录用户 ID；未登录或 token 异常时回退 0（匿名兜底，不阻断接口）。 */
     private Long safeUserId() {
         try {
             return StpUtil.getLoginIdAsLong();

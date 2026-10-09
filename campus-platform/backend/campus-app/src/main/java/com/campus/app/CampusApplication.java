@@ -19,6 +19,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.campus.forum.mapper",
         "com.campus.ai.chat.mapper"
 })
+/** 校园综合服务启动类，聚合 user/trade/forum/ai 等模块的 Mapper 与组件 */
 public class CampusApplication {
     public static void main(String[] args) {
         SpringApplication.run(CampusApplication.class, args);

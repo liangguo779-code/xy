@@ -40,6 +40,7 @@
               <el-tag type="info" size="small">下架原因：{{ item.offReason }}</el-tag>
             </div>
           </div>
+          <!-- 操作区：仅在售(0)可编辑/擦亮/标记售出/下架，已下架(1)可重新上架 -->
           <div class="goods-actions">
             <el-button v-if="item.status === 0" size="small" @click="openEdit(item)">编辑</el-button>
             <el-button v-if="item.status === 0" size="small" @click="handleRefresh(item)">擦亮</el-button>
@@ -111,6 +112,9 @@
 </template>
 
 <script setup>
+/**
+ * 我的商品管理页：按状态筛选自己发布的商品，支持编辑、擦亮、标记售出、下架与重新上架
+ */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -127,9 +131,11 @@ const offShelfItem = ref(null)
 const offShelfReason = ref('已卖出')
 const offShelfRemark = ref('')
 
+/** 商品状态：0-在售 1-已下架 2-已售出 3-已预订，statusType 同码映射标签色 */
 const statusText = (s) => ({ 0: '在售', 1: '已下架', 2: '已售出', 3: '已预订' }[s] || '未知')
 const statusType = (s) => ({ 0: 'success', 1: 'info', 2: 'warning', 3: 'primary' }[s] || '')
 
+/** 取商品首图，后端 images 存 JSON 字符串但可能已被解析为数组；解析失败返回空串由占位图兜底 */
 function getFirstImage(item) {
   try {
     const imgs = typeof item.images === 'string' ? JSON.parse(item.images) : item.images
@@ -137,6 +143,7 @@ function getFirstImage(item) {
   } catch { return '' }
 }
 
+/** 打开编辑弹窗并回填当前商品，成色缺省为良好 */
 function openEdit(item) {
   editForm.value = {
     id: item.id,
@@ -148,6 +155,7 @@ function openEdit(item) {
   showEdit.value = true
 }
 
+/** 保存编辑，PUT 整体提交可编辑字段后刷新列表 */
 async function handleSaveEdit() {
   await request.put(`/api/goods/${editForm.value.id}`, editForm.value)
   ElMessage.success('保存成功')
@@ -155,6 +163,7 @@ async function handleSaveEdit() {
   loadGoods()
 }
 
+/** 打开下架弹窗，原因默认已卖出并清空上次的补充说明 */
 function openOffShelf(item) {
   offShelfItem.value = item
   offShelfReason.value = '已卖出'
@@ -162,7 +171,9 @@ function openOffShelf(item) {
   showOffShelf.value = true
 }
 
+/** 下架商品，原因作为下架原因存库并展示在列表中 */
 async function handleOffShelf() {
+  // 选其他时提交补充说明作为原因，其余提交预设原因文案
   const reason = offShelfReason.value === '其他' ? offShelfRemark.value : offShelfReason.value
   await request.delete(`/api/goods/${offShelfItem.value.id}`, { params: { reason } })
   ElMessage.success('已下架')
@@ -170,24 +181,28 @@ async function handleOffShelf() {
   loadGoods()
 }
 
+/** 重新上架，商品状态回到 0-在售 */
 async function handleReShelf(item) {
   await request.put(`/api/goods/${item.id}/reshelf`)
   ElMessage.success('已重新上架')
   loadGoods()
 }
 
+/** 标记已售出，商品状态置为 2-已售出 */
 async function handleMarkSold(item) {
   await request.put(`/api/goods/${item.id}/sold`)
   ElMessage.success('已标记为已售出')
   loadGoods()
 }
 
+/** 擦亮商品刷新发布时间以提升排名 */
 async function handleRefresh(item) {
   try {
     await request.put(`/api/goods/${item.id}/refresh`)
     ElMessage.success('擦亮成功，商品排名已提升')
     loadGoods()
   } catch (e) {
+    // 后端对擦亮频率有限制，属业务失败用 warning 提示而非报错
     ElMessage.warning(e.response?.data?.message || '擦亮失败')
   }
 }
@@ -195,8 +210,10 @@ async function handleRefresh(item) {
 const page = ref(1)
 const total = ref(0)
 
+/** 分页加载我的商品列表 */
 async function loadGoods() {
   const params = { page: page.value, size: 20 }
+  // 筛选值为空串代表全部，此时不传 status 参数
   if (statusFilter.value !== '') params.status = statusFilter.value
   const res = await request.get('/api/goods/my', { params })
   goodsList.value = res.data?.records || res.data || []

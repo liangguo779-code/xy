@@ -9,12 +9,14 @@
         </div>
       </template>
 
+      <!-- 状态筛选：status 1-正常 0-已隐藏（注意 1 为正常态） -->
       <el-radio-group v-model="statusFilter" @change="loadData" style="margin-bottom: 12px">
         <el-radio-button label="">全部</el-radio-button>
         <el-radio-button label="1">正常</el-radio-button>
         <el-radio-button label="0">已隐藏</el-radio-button>
       </el-radio-group>
 
+      <!-- 帖子列表：隐藏/恢复只切 status 可逆，删除为物理删除不可逆 -->
       <el-table :data="list" stripe v-loading="loading">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
@@ -57,6 +59,7 @@
 </template>
 
 <script setup>
+/** 论坛管理页：分页浏览帖子并支持置顶、隐藏/恢复与删除，置顶与状态均由后端接口翻转，前端只负责刷新列表 */
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
@@ -66,8 +69,10 @@ const page = ref(1)
 const total = ref(0)
 const loading = ref(false)
 const keyword = ref('')
+/** 状态筛选：空串为全部，1-正常 0-已隐藏 */
 const statusFilter = ref('')
 
+/** 加载帖子分页列表，keyword 命中标题或内容（后端 like 查询） */
 async function loadData() {
   loading.value = true
   try {
@@ -82,24 +87,28 @@ async function loadData() {
   }
 }
 
+/** 置顶开关由后端对 isTop 取反，无需传目标状态 */
 async function handleToggleTop(row) {
   await request.put(`/api/admin/forum/posts/${row.id}/top`)
   ElMessage.success(row.isTop ? '已取消置顶' : '已置顶')
   loadData()
 }
 
+/** 隐藏帖子：status 置 0，用户端不再展示，可随时恢复 */
 async function handleHide(id) {
   await request.put(`/api/admin/forum/posts/${id}/hide`)
   ElMessage.success('已隐藏')
   loadData()
 }
 
+/** 恢复已隐藏的帖子：status 置 1 */
 async function handleRestore(id) {
   await request.put(`/api/admin/forum/posts/${id}/restore`)
   ElMessage.success('已恢复')
   loadData()
 }
 
+/** 删除帖子为物理删除（区别于用户端逻辑删除），不可恢复，故先二次确认 */
 async function handleDelete(id) {
   await ElMessageBox.confirm('确定要永久删除这篇帖子吗？', '确认删除', { type: 'warning' })
   await request.delete(`/api/admin/forum/posts/${id}`)

@@ -4,6 +4,7 @@
       <h2>消息通知</h2>
       <el-button text type="primary" @click="handleMarkAllRead">全部已读</el-button>
     </div>
+    <!-- 通知条目列表：未读项高亮，点击标记已读并按类型跳转 -->
     <div v-for="n in list" :key="n.id" class="notif-item" :class="{ unread: !n.isRead }"
          @click="handleRead(n)">
       <div class="notif-icon">
@@ -27,6 +28,7 @@
 </template>
 
 <script setup>
+/** 消息通知页：展示站内通知列表，点击条目标记已读并按类型跳转帖子、订单或举报页 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell, Goods, ChatDotRound, Notebook, Warning } from '@element-plus/icons-vue'
@@ -35,6 +37,7 @@ import { getNotifications, markRead, markAllRead } from '@/api/notification'
 const router = useRouter()
 const list = ref([])
 
+/** 通知类型与图标配色映射：system 系统、order_status 订单、new_message 私信、forum 前缀论坛、report 前缀举报、dispute 前缀纠纷 */
 const typeColor = (t) => ({
   system: '#409eff', order_status: '#67c23a', new_message: '#e6a23c',
   forum_comment: '#409eff', forum_reply: '#67c23a', forum_like: '#e6a23c',
@@ -42,11 +45,13 @@ const typeColor = (t) => ({
   dispute_resolved: '#52C41A', dispute_rejected: '#F56C6C'
 }[t] || '#909399')
 
+/** 仅拉取最近 50 条，通知列表暂不做完整分页 */
 async function loadData() {
   const res = await getNotifications({ page: 1, size: 50 })
   list.value = res.data?.records || []
 }
 
+/** 点击通知：未读先标记已读（isRead 用 0/1，置 1 同步本地态），再按类型跳转对应页面 */
 async function handleRead(n) {
   if (!n.isRead) {
     await markRead(n.id)
@@ -72,6 +77,7 @@ async function handleRead(n) {
   }
 }
 
+/** 批量标记通知已读，成功后本地同步置 1 免重新拉取 */
 async function handleMarkAllRead() {
   await markAllRead()
   list.value.forEach(n => n.isRead = 1)

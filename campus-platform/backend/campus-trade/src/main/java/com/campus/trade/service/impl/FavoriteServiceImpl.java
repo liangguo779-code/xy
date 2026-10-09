@@ -16,12 +16,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/** 商品收藏服务实现，收藏时同步维护商品 like_count 计数 */
 @Service
 @RequiredArgsConstructor
 public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> implements FavoriteService {
 
     private final GoodsMapper goodsMapper;
 
+    /** 收藏商品（幂等：已收藏则直接返回），同事务内原子增加 like_count */
     @Override
     @Transactional
     public void addFavorite(Long userId, Long goodsId) {
@@ -38,6 +40,7 @@ public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> i
                 .eq(Goods::getId, goodsId).setSql("like_count = like_count + 1"));
     }
 
+    /** 取消收藏，like_count 用 GREATEST 兜底防止计数减成负数 */
     @Override
     @Transactional
     public void removeFavorite(Long userId, Long goodsId) {
@@ -48,12 +51,14 @@ public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> i
                 .eq(Goods::getId, goodsId).setSql("like_count = GREATEST(like_count - 1, 0)"));
     }
 
+    /** 判断商品是否已被该用户收藏 */
     @Override
     public boolean isFavorited(Long userId, Long goodsId) {
         return count(new LambdaQueryWrapper<Favorite>()
                 .eq(Favorite::getUserId, userId).eq(Favorite::getGoodsId, goodsId)) > 0;
     }
 
+    /** 我的收藏列表：仅保留上架中商品，并按收藏时间倒序返回 */
     @Override
     public List<Goods> getMyFavorites(Long userId) {
         List<Favorite> favs = list(new LambdaQueryWrapper<Favorite>()

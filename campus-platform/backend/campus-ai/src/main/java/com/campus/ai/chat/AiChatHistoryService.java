@@ -6,6 +6,7 @@ import com.campus.ai.chat.dto.AiChatSessionVO;
 
 import java.util.List;
 
+/** 会话与消息历史管理接口：创建/查询/删除会话、保存与拉取消息。 */
 public interface AiChatHistoryService {
 
     /** 创建会话 */

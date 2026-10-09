@@ -38,6 +38,7 @@ public class OssStorageService implements StorageService {
     // @Value("${storage.oss.url-prefix}")
     // private String urlPrefix;
 
+    /** 上传占位实现：仅拼 objectName 骨架，未接入真实 OSS 前统一抛业务异常提示配置 */
     @Override
     public String upload(MultipartFile file, String directory) {
         // TODO: 接入阿里云 OSS / 腾讯云 COS / MinIO 等
@@ -52,6 +53,7 @@ public class OssStorageService implements StorageService {
         if (ext != null && ext.contains(".")) {
             ext = ext.substring(ext.lastIndexOf("."));
         } else {
+            // 无后缀文件兜底扩展名
             ext = ".bin";
         }
         String objectName = subDir + "/" + IdUtil.fastSimpleUUID() + ext;
@@ -60,6 +62,7 @@ public class OssStorageService implements StorageService {
         throw new BusinessException("OSS 存储尚未配置，请设置 storage.type=local 或配置 OSS 参数");
     }
 
+    /** 删除占位实现：接入 OSS 后按 URL 解析 objectName 调用 deleteObject */
     @Override
     public void delete(String fileUrl) {
         // TODO: 接入 OSS 删除
