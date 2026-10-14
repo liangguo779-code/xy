@@ -4,12 +4,15 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
+import com.campus.common.service.EsOutboxService;
 import com.campus.trade.entity.Goods;
 import com.campus.trade.mapper.GoodsMapper;
 import com.campus.trade.service.GoodsIndexService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -23,6 +26,7 @@ public class AdminGoodsController {
 
     private final GoodsMapper goodsMapper;
     private final GoodsIndexService goodsIndexService;
+    private final EsOutboxService esOutboxService;
     private final com.campus.trade.mapper.OrderMapper orderMapper;
 
     /** 分页查询商品，可按状态过滤、按标题/描述模糊搜索 */
@@ -48,6 +52,7 @@ public class AdminGoodsController {
      * 已被订单预订的商品必须跳过（有活跃订单即拒绝），否则会把预订中的商品放回在售，造成一货两卖。
      */
     @PutMapping("/{id}/approve")
+    @Transactional
     public R<Void> approve(@PathVariable Long id) {
         Goods goods = goodsMapper.selectById(id);
         if (goods == null) throw new BusinessException("商品不存在");
@@ -80,12 +85,13 @@ public class AdminGoodsController {
             throw new BusinessException("商品状态已变化，请刷新后重试");
         }
         goods.setStatus(0);
-        goodsIndexService.indexGoods(goods);
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, id);
         return R.ok();
     }
 
     /** 拒绝商品（下架并记录原因），已售出的不可拒绝；已有活跃订单（已预订）的商品跳过，避免误操作 */
     @PutMapping("/{id}/reject")
+    @Transactional
     public R<Void> reject(@PathVariable Long id, @RequestParam(required = false) String reason) {
         Goods goods = goodsMapper.selectById(id);
         if (goods == null) throw new BusinessException("商品不存在");
@@ -112,12 +118,13 @@ public class AdminGoodsController {
         if (updated == 0) {
             throw new BusinessException("商品状态已变化，请刷新后重试");
         }
-        goodsIndexService.deleteGoods(id);
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, id);
         return R.ok();
     }
 
     /** 强制下架商品（在售/已预订状态可操作），并从搜索索引移除；已有活跃订单（已预订）的商品跳过 */
     @PutMapping("/{id}/force-off")
+    @Transactional
     public R<Void> forceOff(@PathVariable Long id, @RequestParam(required = false) String reason) {
         Goods goods = goodsMapper.selectById(id);
         if (goods == null) throw new BusinessException("商品不存在");
@@ -144,7 +151,7 @@ public class AdminGoodsController {
         if (updated == 0) {
             throw new BusinessException("商品状态已变化，请刷新后重试");
         }
-        goodsIndexService.deleteGoods(id);
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, id);
         return R.ok();
     }
 

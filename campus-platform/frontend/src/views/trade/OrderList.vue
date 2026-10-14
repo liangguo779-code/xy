@@ -18,9 +18,9 @@
       <el-radio-button label="4">已取消</el-radio-button>
     </el-radio-group>
 
-    <!-- 订单卡片列表，点击进入订单详情 -->
+    <!-- 订单卡片列表，点击进入订单详情（票据无 id，按 orderNo 跳票据页） -->
     <div class="order-cards">
-      <div v-for="order in orders" :key="order.id" class="order-card" @click="goDetail(order)">
+      <div v-for="order in orders" :key="order.id || order.orderNo" class="order-card" @click="goDetail(order)">
         <div class="order-card-header">
           <span class="order-no">{{ order.orderNo }}</span>
           <el-tag :type="statusType(order.status)" size="small" effect="plain">{{ order.statusDesc }}</el-tag>
@@ -32,9 +32,11 @@
           <div class="order-info">
             <div class="order-goods-title">{{ order.goodsTitle }}</div>
             <div class="order-meta">
+              <el-tag v-if="order.goodsType === 1" type="danger" size="small" effect="plain">热卖</el-tag>
               <el-tag :type="order.dealType === 0 ? 'info' : 'success'" size="small" effect="plain">
                 {{ order.dealType === 0 ? '自提' : '配送' }}
               </el-tag>
+              <span v-if="order.quantity > 1" class="order-time">×{{ order.quantity }}</span>
               <span class="order-time">{{ order.createTime }}</span>
             </div>
           </div>
@@ -49,12 +51,14 @@
 
 <script setup>
 /**
- * 我的订单页：按角色（我买到的/我卖出的）与状态筛选订单，点击卡片进入详情
- * 状态约定：0-待卖家确认 1-待核销 3-已完成 4-已取消；配送侧 5-协商跑腿费 6-待派单 7-待取货 8-配送中 9-待确认收货
+ * 我的订单页：按角色（我买到的/我卖出的）与状态筛选订单，点击卡片进入详情。
+ * 热卖票据（尚未落库的在途单）合并展示在最前，无 id 的卡片按 orderNo 跳票据页。
+ * 状态约定：0-待卖家确认 1-待核销 3-已完成 4-已取消；配送侧 5-协商跑腿费 6-待派单 7-待取货 8-配送中 9-待确认收货；
+ * 票据侧 10-待确认 11-处理中。
  */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getMyOrders } from '@/api/order'
+import { getMyOrders, getMyHotTickets } from '@/api/order'
 
 const router = useRouter()
 const orders = ref([])
@@ -67,12 +71,31 @@ const roleFilter = ref('buyer')
 const statusType = (s) => {
   if (s === 3) return 'success'
   if (s === 4) return 'danger'
-  if (s === 0 || s === 5) return 'warning'
+  if (s === 0 || s === 5 || s === 10) return 'warning'
+  if (s === 11) return 'info'
   if (s === 7 || s === 8 || s === 9) return 'primary'
   return 'info'
 }
 
-/** 按角色与状态筛选加载订单 */
+/** 票据 VO → 与 OrderVO 同构的列表行（前端合并展示用） */
+function normalizeTicket(t) {
+  return {
+    id: null,
+    orderNo: t.orderNo,
+    goodsId: t.goodsId,
+    goodsTitle: t.goodsTitle,
+    goodsImage: t.goodsImage,
+    goodsType: 1,
+    dealType: 1,
+    quantity: t.qty,
+    goodsAmount: t.goodsAmount,
+    status: t.status,
+    statusDesc: t.phaseDesc,
+    createTime: t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'
+  }
+}
+
+/** 按角色与状态筛选加载订单（买家视角合并热卖票据，票据排前） */
 async function loadOrders() {
   // 列表暂未接分页控件，固定取前 50 条
   const params = { page: 1, size: 50 }
@@ -84,12 +107,26 @@ async function loadOrders() {
   }
   if (roleFilter.value) params.role = roleFilter.value
   const res = await getMyOrders(params)
-  orders.value = res.data?.records || []
+  let rows = res.data?.records || []
+
+  // 热卖票据只在买家视角的「全部/进行中」下合并（票据是买家侧在途单）
+  if (roleFilter.value === 'buyer' && !statusFilter.value) {
+    try {
+      const ticketRes = await getMyHotTickets()
+      const tickets = (ticketRes.data || []).map(normalizeTicket)
+      rows = [...tickets, ...rows]
+    } catch { /* 票据接口失败不影响订单列表 */ }
+  }
+  orders.value = rows
 }
 
-/** 跳转订单详情页，路由为 /orders/:id */
+/** 有 id 走订单详情；票据无 id，按 orderNo 跳票据页 */
 function goDetail(row) {
-  router.push(`/orders/${row.id}`)
+  if (row.id) {
+    router.push(`/orders/${row.id}`)
+  } else {
+    router.push(`/hot-ticket/${row.orderNo}`)
+  }
 }
 
 onMounted(loadOrders)

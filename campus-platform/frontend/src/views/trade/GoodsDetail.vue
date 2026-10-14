@@ -26,6 +26,7 @@
         <span class="original" v-if="goods.originalPrice">¥{{ goods.originalPrice }}</span>
       </div>
       <div class="price-tags">
+        <el-tag v-if="goods.goodsType === 1" size="small" type="danger" effect="dark">热卖</el-tag>
         <el-tag v-if="goods.condition" size="small" type="info">{{ goods.condition }}</el-tag>
         <el-tag v-if="goods.type === 1" size="small" type="warning">求购</el-tag>
         <el-tag v-if="goods.status === 3" size="small" type="warning">已预订</el-tag>
@@ -33,6 +34,15 @@
         <el-tag v-if="priceChange" size="small" :type="priceChange < 0 ? 'success' : 'warning'">
           {{ priceChange < 0 ? '降' : '涨' }}了 ¥{{ Math.abs(priceChange) }}
         </el-tag>
+      </div>
+      <!-- 热卖商品：展示库存/销量/限购，发货点即配送取货地址 -->
+      <div v-if="goods.goodsType === 1" class="hot-meta">
+        <span :class="{ 'stock-out': (goods.stock ?? 0) <= 0 }">
+          {{ (goods.stock ?? 0) > 0 ? `剩余 ${goods.stock} 件` : '已售罄' }}
+        </span>
+        <span>已售 {{ goods.sales || 0 }} 件</span>
+        <span v-if="goods.purchaseLimit > 0">限购 {{ goods.purchaseLimit }} 件</span>
+        <span v-if="goods.location">发货点：{{ goods.location }}</span>
       </div>
       <div class="stats">
         <span>{{ goods.viewCount || 0 }}浏览</span>
@@ -121,22 +131,29 @@
       </div>
       <!-- 右侧操作区：非本人在售可私聊/我想要；被发起交易（status=3）等非在售状态展示预订标记；本人按状态编辑或下架 -->
       <div class="bar-right">
-        <el-button v-if="!isOwner && goods.status === 0" size="large" @click="handleChat" :loading="wanting">
+        <!-- 热卖商品：直接下单（Lua 扣库存），无需协商 -->
+        <el-button v-if="!isOwner && isHot && goods.status === 0" type="danger" size="large"
+                   :disabled="(goods.stock ?? 0) <= 0" @click="openBuyDialog">
+          {{ (goods.stock ?? 0) <= 0 ? '已售罄' : '立即下单' }}
+        </el-button>
+        <el-button v-if="!isOwner && !isHot && goods.status === 0" size="large" @click="handleChat" :loading="wanting">
           <el-icon><ChatDotRound /></el-icon> 私聊沟通
         </el-button>
-        <el-button v-if="!isOwner && goods.status === 0" type="danger" size="large" @click="handleWant" :loading="wanting">
+        <el-button v-if="!isOwner && !isHot && goods.status === 0" type="danger" size="large" @click="handleWant" :loading="wanting">
           我想要
         </el-button>
         <!-- 被发起交易即占位（发起交易时 status 0→3）：对所有人展示"已预订"，不再给购买入口 -->
         <el-tag v-if="!isOwner && goods.status === 3" type="warning" size="large">已预订</el-tag>
         <el-tag v-if="!isOwner && goods.status === 2" type="danger" size="large">已售出</el-tag>
         <el-tag v-if="!isOwner && goods.status === 1" type="info" size="large">已下架</el-tag>
-        <el-button v-if="isOwner && goods.status === 0" size="large" @click="showEdit = true">
+        <!-- 热卖商品由管理后台维护库存/上下架，前台不提供编辑入口 -->
+        <el-button v-if="isOwner && !isHot && goods.status === 0" size="large" @click="showEdit = true">
           编辑
         </el-button>
-        <el-button v-if="isOwner && goods.status === 0" type="danger" plain size="large" @click="showOffShelf = true">
+        <el-button v-if="isOwner && !isHot && goods.status === 0" type="danger" plain size="large" @click="showOffShelf = true">
           下架
         </el-button>
+        <el-tag v-if="isOwner && isHot" type="warning" size="large">热卖 · 管理后台维护</el-tag>
         <el-tag v-if="isOwner && goods.status === 1" type="info" size="large">已下架</el-tag>
         <el-tag v-if="isOwner && goods.status === 3" type="warning" size="large">已预订</el-tag>
         <el-tag v-if="isOwner && goods.status === 2" type="success" size="large">已售出</el-tag>
@@ -207,6 +224,37 @@
       </template>
     </el-dialog>
 
+    <!-- 热卖下单弹窗：选数量与收货地址，下单即扣库存，须在 60 秒内二次确认 -->
+    <el-dialog v-model="showBuy" title="热卖下单" width="440" :close-on-click-modal="false">
+      <el-form label-width="80px">
+        <el-form-item label="购买数量">
+          <el-input-number v-model="buyForm.quantity" :min="1" :max="maxBuyQty" />
+          <span class="buy-stock-tip">剩余 {{ goods.stock ?? 0 }} 件</span>
+        </el-form-item>
+        <el-form-item label="收货地址" required>
+          <el-select v-model="buyForm.addressId" placeholder="选择收货地址" style="width: 100%">
+            <el-option v-for="addr in addresses" :key="addr.id" :value="addr.id"
+                       :label="`${addr.building} ${addr.detail} (${addr.contactName} ${addr.phone})`" />
+          </el-select>
+          <div class="buy-tip">
+            <el-button text type="primary" size="small" @click="router.push('/address')">管理收货地址</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="跑腿费">
+          <el-radio-group v-model="buyForm.deliveryFeePayer">
+            <el-radio value="buyer">买家承担</el-radio>
+            <el-radio value="seller">卖家承担</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <el-alert type="warning" :closable="false" show-icon
+                title="下单后请在 60 秒内确认购买，超时将自动取消并释放库存。确认后进入派单流程，不可自助取消。" />
+      <template #footer>
+        <el-button @click="showBuy = false">取消</el-button>
+        <el-button type="danger" :loading="buying" @click="handleBuy">提交订单（¥{{ buyTotal }}）</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 相似商品 -->
     <div v-if="similarGoods.length" class="similar-section">
       <div class="section-title">相似商品</div>
@@ -228,7 +276,7 @@
 /** 商品详情页：展示商品与卖家信息，支持收藏/关注/私聊/我想要、编辑下架、举报与相似推荐 */
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getGoodsDetail, getRecommendGoods, markAsSold, deleteGoods } from '@/api/goods'
 import { startSession } from '@/api/chat'
 import { ArrowLeft, Warning } from '@element-plus/icons-vue'
@@ -236,6 +284,8 @@ import request from '@/utils/request'
 import { addFavorite, removeFavorite, checkFavorite } from '@/api/favorite'
 import { followUser, unfollowUser, checkFollow } from '@/api/follow'
 import { createReport } from '@/api/report'
+import { createHotOrder } from '@/api/order'
+import { getAddresses } from '@/api/address'
 
 const route = useRoute()
 const router = useRouter()
@@ -264,6 +314,87 @@ const isOwner = computed(() => {
   const userId = Number(localStorage.getItem('userId') || 0)
   return goods.value?.userId === userId
 })
+
+/** 热卖商品（goodsType=1）：管理员发布、带库存，走直接下单流程而非协商 */
+const isHot = computed(() => goods.value?.goodsType === 1)
+
+// ── 热卖下单 ────────────────────────────────────────────────
+const showBuy = ref(false)
+const buying = ref(false)
+const addresses = ref([])
+/** 下单表单：addressId 缺省取默认地址；deliveryFeePayer 与普通配送同约定 */
+const buyForm = ref({ quantity: 1, addressId: null, deliveryFeePayer: 'buyer' })
+
+/** 最多可买数量：剩余库存与限购的较小值 */
+const maxBuyQty = computed(() => {
+  const stock = goods.value?.stock ?? 0
+  const limit = goods.value?.purchaseLimit > 0 ? goods.value.purchaseLimit : stock
+  return Math.max(1, Math.min(stock, limit))
+})
+
+const buyTotal = computed(() => {
+  const price = Number(goods.value?.price || 0)
+  return (price * (buyForm.value.quantity || 1)).toFixed(2)
+})
+
+/** 打开下单弹窗：先检查收货地址，未填写则引导去添加，避免下单时才被后端拒绝 */
+async function openBuyDialog() {
+  let list = null
+  try {
+    const res = await getAddresses()
+    list = res.data || []
+  } catch { /* 查询失败按未知处理，仍打开弹窗让用户重试选择 */ }
+
+  if (list !== null && list.length === 0) {
+    try {
+      await ElMessageBox.confirm('您还没有填写收货地址，请先添加后再下单。', '需要收货地址', {
+        confirmButtonText: '去添加地址',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+      router.push('/address')
+    } catch { /* 用户点取消，留在当前页 */ }
+    return
+  }
+
+  addresses.value = list || []
+  buyForm.value = {
+    quantity: 1,
+    // 缺省选默认地址，无默认则取第一条
+    addressId: (addresses.value.find(a => a.isDefault === 1) || addresses.value[0])?.id || null,
+    deliveryFeePayer: 'buyer'
+  }
+  showBuy.value = true
+}
+
+/** 提交热卖下单：后端 Lua 扣库存+票据入队（消费才产生订单），成功后跳票据页做二次确认 */
+async function handleBuy() {
+  if (!buyForm.value.addressId) {
+    ElMessage.warning('请选择收货地址')
+    return
+  }
+  buying.value = true
+  try {
+    const res = await createHotOrder({
+      goodsId: goods.value.id,
+      quantity: buyForm.value.quantity,
+      addressId: buyForm.value.addressId,
+      deliveryFeePayer: buyForm.value.deliveryFeePayer,
+      // 幂等键防双击重复下单，同一弹窗会话复用
+      idempotentKey: `hot-${goods.value.id}-${Date.now()}`
+    })
+    ElMessage.success('下单成功！请在 60 秒内确认购买，超时自动取消并释放库存')
+    showBuy.value = false
+    // 票据无 DB id，按 orderNo 跳票据页（确认后由 worker 落库再跳订单详情）
+    router.push(`/hot-ticket/${res.data.orderNo}`)
+  } catch (e) {
+    // 业务错误已由请求拦截器弹出，此处仅刷新库存
+    const detail = await getGoodsDetail(route.params.id).catch(() => null)
+    if (detail) goods.value = detail.data
+  } finally {
+    buying.value = false
+  }
+}
 
 /** 相对上次调价的涨跌额，负数表示降价；priceHistory 为调价记录 JSON 串 */
 const priceChange = computed(() => {
@@ -534,6 +665,31 @@ onMounted(async () => {
   display: flex;
   gap: 6px;
   margin-bottom: 10px;
+}
+
+/* 热卖商品库存/销量信息行 */
+.hot-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 10px;
+}
+
+.hot-meta .stock-out {
+  color: #F56C6C;
+  font-weight: 600;
+}
+
+.buy-stock-tip {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.buy-tip {
+  margin-top: 4px;
 }
 
 .stats {

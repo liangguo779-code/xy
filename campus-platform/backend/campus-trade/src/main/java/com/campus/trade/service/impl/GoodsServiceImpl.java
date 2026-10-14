@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
+import com.campus.common.service.EsOutboxService;
 import com.campus.common.service.NotificationService;
 import com.campus.trade.entity.BrowseHistory;
 import com.campus.trade.entity.Category;
@@ -17,9 +19,9 @@ import com.campus.trade.mapper.CategoryMapper;
 import com.campus.trade.mapper.FavoriteMapper;
 import com.campus.trade.mapper.GoodsMapper;
 import com.campus.trade.mapper.OrderMapper;
-import com.campus.trade.service.GoodsIndexService;
 import com.campus.trade.service.GoodsSearchService;
 import com.campus.trade.service.GoodsService;
+import com.campus.trade.service.HotSaleStockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,7 +48,8 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     private final OrderMapper orderMapper;
     private final NotificationService notificationService;
     private final GoodsSearchService goodsSearchService;
-    private final GoodsIndexService goodsIndexService;
+    private final EsOutboxService esOutboxService;
+    private final HotSaleStockService hotSaleStockService;
 
     /** 商品列表：有关键字时优先 ES 检索，ES 失败或无结果自动降级 MySQL 模糊查询 */
     @Override
@@ -54,6 +57,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                                  BigDecimal minPrice, BigDecimal maxPrice,
                                  String condition, String sortBy,
                                  int page, int size) {
+        Page<Goods> result;
         // 有 keyword 且不是"我的商品"场景时，走 ES 搜索
         if (StringUtils.hasText(keyword) && userId == null) {
             try {
@@ -62,7 +66,9 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                 // ES 返回结果或无关键词过滤时直接返回
                 if (esResult.getTotal() > 0 || !StringUtils.hasText(keyword)) {
                     log.info("ES 搜索成功: keyword={}, results={}", keyword, esResult.getTotal());
-                    return esResult;
+                    result = esResult;
+                    overlayHotStock(result.getRecords());
+                    return result;
                 }
                 log.info("ES 搜索无结果，降级到 MySQL: keyword={}", keyword);
             } catch (Exception e) {
@@ -70,10 +76,11 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
             }
         }
 
-        Page<Goods> mysqlResult = listGoodsFromMySQL(keyword, categoryId, userId, type,
+        result = listGoodsFromMySQL(keyword, categoryId, userId, type,
                 minPrice, maxPrice, condition, sortBy, page, size);
-        log.info("MySQL 搜索: keyword={}, results={}", keyword, mysqlResult.getTotal());
-        return mysqlResult;
+        log.info("MySQL 搜索: keyword={}, results={}", keyword, result.getTotal());
+        overlayHotStock(result.getRecords());
+        return result;
     }
 
     /** MySQL 降级查询：在售 + 已预订商品（已预订展示角标），支持多条件过滤与价格/热度/最新排序 */
@@ -172,16 +179,20 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
 
     /** 商品详情：浏览数+1，并记录浏览历史（1 小时内同商品去重） */
     @Override
+    @Transactional
     public Goods getGoodsDetail(Long id, Long userId) {
         Goods goods = getById(id);
         if (goods == null) {
             throw new BusinessException("商品不存在");
         }
+        overlayHotStock(goods);
         update(new LambdaUpdateWrapper<Goods>()
                 .eq(Goods::getId, id)
                 .setSql("view_count = view_count + 1"));
         // 手动更新返回对象的 viewCount，避免前端显示旧值
         goods.setViewCount(goods.getViewCount() != null ? goods.getViewCount() + 1 : 1);
+        // 浏览量要进 ES：hottest 排序读的是索引里的 viewCount，不同步会一直是旧值
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, id);
         // 记录浏览历史（1小时内同商品不重复记录）
         if (userId != null) {
             Long existCount = browseHistoryMapper.selectCount(
@@ -199,8 +210,9 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return goods;
     }
 
-    /** 发布商品：未选分类自动归入"其他"，服务端强制上架并同步 ES 索引 */
+    /** 发布商品：未选分类自动归入"其他"，服务端强制上架并写入 ES 同步发件箱 */
     @Override
+    @Transactional
     public Goods createGoods(Long userId, Goods goods) {
         // 未选分类时自动归入"其他"
         if (goods.getCategoryId() == null) {
@@ -220,6 +232,11 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         // 强制设置字段，防止前端篡改
         goods.setUserId(userId);
         goods.setStatus(0);  // 始终为已上架
+        // 热卖商品仅管理员发布（AdminHotGoodsController），用户发布接口强制归为二手
+        goods.setGoodsType(0);
+        goods.setStock(null);
+        goods.setSales(null);
+        goods.setPurchaseLimit(null);
         if (goods.getType() == null) {
             goods.setType(0);
         }
@@ -227,7 +244,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         goods.setWantCount(0);
         goods.setLikeCount(0);
         save(goods);
-        goodsIndexService.indexGoods(goods);
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goods.getId());
         return goods;
     }
 
@@ -299,8 +316,8 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         Integer statusSnapshot = existing.getStatus(); // 前面已校验为在售(0)
         existing.setStatus(null);
         updateById(existing);
-        existing.setStatus(statusSnapshot); // 回填内存对象，供 ES 索引使用
-        goodsIndexService.indexGoods(existing);
+        existing.setStatus(statusSnapshot); // 回填内存对象
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goodsId);
     }
 
     /** 下架商品（无原因） */
@@ -309,7 +326,8 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         deleteGoods(userId, goodsId, null);
     }
 
-    /** 下架商品并记录原因，有进行中订单时禁止下架，同时移除 ES 索引 */
+    /** 下架商品并记录原因，有进行中订单时禁止下架，同时写入 ES 移除意图 */
+    @Transactional
     public void deleteGoods(Long userId, Long goodsId, String reason) {
         Goods existing = getById(goodsId);
         if (existing == null || !existing.getUserId().equals(userId)) {
@@ -337,11 +355,12 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         if (!updated) {
             throw new BusinessException("商品状态已变化，请刷新后重试");
         }
-        goodsIndexService.deleteGoods(goodsId);
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, goodsId);
     }
 
-    /** 标记已售出，有进行中订单时禁止操作，同时移除 ES 索引 */
+    /** 标记已售出，有进行中订单时禁止操作，同时写入 ES 移除意图 */
     @Override
+    @Transactional
     public void markAsSold(Long userId, Long goodsId) {
         Goods existing = getById(goodsId);
         if (existing == null || !existing.getUserId().equals(userId)) {
@@ -368,11 +387,12 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         if (!updated) {
             throw new BusinessException("商品状态已变化，请刷新后重试");
         }
-        goodsIndexService.deleteGoods(goodsId);
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, goodsId);
     }
 
     /** 擦亮商品（刷新 refreshTime 提升排序），每天限 1 次 */
     @Override
+    @Transactional
     public void refreshGoods(Long userId, Long goodsId) {
         Goods existing = getById(goodsId);
         if (existing == null || !existing.getUserId().equals(userId)) {
@@ -392,11 +412,12 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                 .eq(Goods::getId, goodsId)
                 .set(Goods::getRefreshTime, java.time.LocalDateTime.now()));
         existing.setRefreshTime(java.time.LocalDateTime.now());
-        goodsIndexService.indexGoods(existing);
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goodsId);
     }
 
     /** 重新上架已下架商品，并刷新排序时间与 ES 索引 */
     @Override
+    @Transactional
     public void reshelfGoods(Long userId, Long goodsId) {
         Goods existing = getById(goodsId);
         if (existing == null || !existing.getUserId().equals(userId)) {
@@ -412,7 +433,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                 .set(Goods::getRefreshTime, java.time.LocalDateTime.now()));
         existing.setStatus(0);
         existing.setRefreshTime(java.time.LocalDateTime.now());
-        goodsIndexService.indexGoods(existing);
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goodsId);
     }
 
     /** 我的商品列表，可按状态过滤，按发布时间倒序 */
@@ -442,5 +463,29 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                 .collect(Collectors.toList());
         result.setRecords(goods);
         return result;
+    }
+
+    /**
+     * 热卖商品可售库存覆盖：Redis 计数优先（含在途未确认扣减），key 缺失回退 DB 值。
+     *
+     * <p>新模型下 DB 库存只在 worker 消费落库时才扣，不覆盖的话在途期间买家看到的
+     * 「剩余 N 件」会虚高。口径与管理端 {@code AdminHotGoodsController.list} 一致。
+     */
+    private void overlayHotStock(List<Goods> goodsList) {
+        if (goodsList == null) {
+            return;
+        }
+        goodsList.forEach(this::overlayHotStock);
+    }
+
+    /** 单个商品的热卖库存覆盖（见 {@link #overlayHotStock(List)}） */
+    private void overlayHotStock(Goods goods) {
+        if (goods == null || goods.getGoodsType() == null || goods.getGoodsType() != 1) {
+            return;
+        }
+        Long available = hotSaleStockService.getAvailable(goods.getId());
+        if (available != null) {
+            goods.setStock(available.intValue());
+        }
     }
 }

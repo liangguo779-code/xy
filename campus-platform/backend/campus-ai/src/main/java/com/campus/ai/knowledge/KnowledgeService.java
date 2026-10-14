@@ -6,13 +6,14 @@ import com.campus.ai.knowledge.model.ChunkDto;
 import com.campus.ai.knowledge.pipeline.DocumentConverter;
 import com.campus.ai.knowledge.pipeline.IngestionQueue;
 import com.campus.ai.knowledge.pipeline.MarkdownSectionSplitter;
-import com.campus.ai.retrieval.Bm25Index;
 import com.campus.ai.knowledge.store.DisabledFilesCache;
 import com.campus.ai.retrieval.VectorStoreFacade;
 import com.campus.common.exception.BusinessException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Service;
@@ -42,7 +43,6 @@ public class KnowledgeService {
     private final DocumentConverter converter;
     private final MarkdownSectionSplitter splitter;
     private final VectorStoreFacade vectorStore;
-    private final Bm25Index bm25;
     private final DisabledFilesCache disabled;
     private final RebuildStatusRegistry rebuildStatus;
     /** 入库串行队列，保证 ingest/rebuild 不并发写索引。 */
@@ -60,6 +60,17 @@ public class KnowledgeService {
         Path dir = knowledgeDir();
         Files.createDirectories(dir);
         seedIfEmpty(dir);
+    }
+
+    /**
+     * 应用就绪后检查向量库是否因映射升级（jieba → IK 分词）被重建过。
+     * 若是，自动触发知识库全量重建，从磁盘知识文件回填索引，避免手工重建。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void rebuildIfIndexMigrated() {
+        if (!vectorStore.isPendingRebuild()) return;
+        log.info("ES index was recreated with IK analyzers, triggering knowledge rebuild");
+        rebuild();
     }
 
     /** 列出知识库全部允许类型的文件（含大小、后缀、启用状态），按文件名排序。 */
@@ -136,7 +147,7 @@ public class KnowledgeService {
         return Map.of("message", "已更新并重新入库", "filename", filename);
     }
 
-    /** 删除文件并同步清除向量库与 BM25 中该来源的全部分块。 */
+    /** 删除文件并同步清除向量库中该来源的全部分块。 */
     public void delete(String filename) {
         Path file = knowledgeDir().resolve(filename).normalize();
         ensureInsideKnowledge(file);
@@ -145,7 +156,6 @@ public class KnowledgeService {
         }
         try {
             vectorStore.removeBySource(filename);
-            bm25.removeBySource(filename);
             Files.delete(file);
         } catch (IOException e) {
             throw new BusinessException(500, "删除文件失败: " + e.getMessage());
@@ -173,7 +183,7 @@ public class KnowledgeService {
     /**
      * 全量重建：
      * <ol>
-     *   <li>清理孤儿来源 —— 索引（ES/BM25）中存在但磁盘上已不存在的来源（如被资源管理器
+     *   <li>清理孤儿来源 —— 索引（ES）中存在但磁盘上已不存在的来源（如被资源管理器
      *       直接删除、未走删除接口的文件），从两个存储中一并删除，避免残留分块继续被检索到；</li>
      *   <li>仅重新入库启用中的文件；禁用文件跳过（其旧分块保留，检索时仍按禁用过滤，
      *       重新启用后立即可用）；</li>
@@ -199,11 +209,9 @@ public class KnowledgeService {
         // 1. 清理孤儿：索引里有、磁盘上没有的来源全部删除。
         int removedOrphans = 0;
         Set<String> indexed = new HashSet<>(vectorStore.listSources());
-        indexed.addAll(bm25.listSources());
         for (String source : indexed) {
             if (!onDisk.contains(source)) {
                 vectorStore.removeBySource(source);
-                bm25.removeBySource(source);
                 removedOrphans++;
                 log.info("Removed orphaned source from index: {}", source);
             }
@@ -275,11 +283,9 @@ public class KnowledgeService {
             //    afterward, the data is lost — but this is the only way to guarantee
             //    no stale chunks remain when chunk count or indices change.
             vectorStore.removeBySource(name);
-            bm25.removeBySource(name);
             removedOld = true;
             // 2. Add new chunks.
             vectorStore.addAll(chunks);
-            bm25.addAll(chunks);
             pendingRepair.remove(name);
             log.info("Ingested {} chunks from {}", chunks.size(), name);
             return chunks.size();

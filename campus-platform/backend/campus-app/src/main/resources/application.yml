@@ -97,6 +97,15 @@ campus:
       timeout: 60s
     rebuild:
       max-concurrent: 1
+  # ES 同步事务性发件箱（Transactional Outbox）：
+  # 业务写库时同事务写 es_sync_outbox，提交后踢一脚/定时轮询把变更落到 ES，崩溃不丢同步意图
+  es:
+    outbox:
+      poll-interval-ms: 3000          # 兜底轮询间隔；正常路径由事务提交后踢一脚，秒级可见
+      batch-size: 200                 # 单轮最多处理条数
+      max-backoff-seconds: 300        # 同步失败指数退避上限
+      retain-days: 7                  # 已同步记录保留天数，超期清理
+      cleanup-cron: "0 40 4 * * ?"    # 每日清理已同步记录
 
 # LangChain4j Spring Boot starter reads these to wire OpenAiChatModel.
 langchain4j:
@@ -118,6 +127,12 @@ trade:
     expire-after: 12h              # 发起交易请求有效期，超时自动作废、可重新发起
   order:
     auto-confirm-receive-after: 7d # 送达后超时未确认收货自动确认
+  hot-order:
+    confirm-timeout: 60s           # 热卖订单二次确认截止，超时自动取消并释放库存
+    consume-poll-ms: 200           # 热卖消费者轮询间隔（毫秒）——确认后「处理中」窗口由此决定
+    consume-batch-size: 20         # 每轮最多消费条数
+    release-scan-ms: 10000         # 待确认桶超时扫描间隔（毫秒，超时释放主路径）
+    reconcile-processing-ms: 30000 # 处理中转区对账间隔（毫秒）
   delay-queue:
     poll-interval-ms: 5000         # 延时队列轮询间隔（毫秒）
 

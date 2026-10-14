@@ -2,7 +2,9 @@ package com.campus.trade.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
+import com.campus.common.service.EsOutboxService;
 import com.campus.common.service.NotificationService;
 import com.campus.trade.delay.RedisDelayQueue;
 import com.campus.trade.entity.DeliveryOrder;
@@ -52,7 +54,7 @@ public class OrderTimeoutService {
     private final OrderMapper orderMapper;
     private final GoodsMapper goodsMapper;
     private final DeliveryOrderMapper deliveryOrderMapper;
-    private final GoodsIndexService goodsIndexService;
+    private final EsOutboxService esOutboxService;
     private final NotificationService notificationService;
     private final RedissonClient redisson;
     private final ApplicationContext applicationContext;
@@ -123,9 +125,8 @@ public class OrderTimeoutService {
                 .eq(Goods::getStatus, 3)
                 .set(Goods::getStatus, 2));
 
-        // 已售出不再展示：移出 ES 检索，提交后执行
-        Long soldGoodsId = order.getGoodsId();
-        runAfterCommit(() -> goodsIndexService.deleteGoods(soldGoodsId));
+        // 已售出不再展示：写入 ES 移除意图（同事务），提交后自动同步
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, order.getGoodsId());
 
         // 通知统一移到事务提交后，避免回滚后用户收到"已确认收货"的过期通知
         DeliveryOrder deliveryOrder = deliveryOrderMapper.selectOne(
@@ -156,6 +157,7 @@ public class OrderTimeoutService {
      *
      * <p>公开方法：人工取消订单（{@code OrderServiceImpl.cancelOrder}）复用同一套加锁回补逻辑。
      */
+    @Transactional(rollbackFor = Exception.class)
     public void restoreGoodsIfIdle(Order order) {
         RLock lock = redisson.getLock("lock:goods:" + order.getGoodsId());
         boolean locked = false;
@@ -206,14 +208,8 @@ public class OrderTimeoutService {
         }
 
         if (restored) {
-            // ES 回填移出事务：提交后执行，ES 故障不影响回补一致性（索引可由 reindex 兜底）
-            Long goodsId = order.getGoodsId();
-            runAfterCommit(() -> {
-                Goods restoredGoods = goodsMapper.selectById(goodsId);
-                if (restoredGoods != null) {
-                    goodsIndexService.indexGoods(restoredGoods);
-                }
-            });
+            // 同事务写发件箱，提交后自动同步 ES（处理器重读库取最新状态，崩溃不丢）
+            esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, order.getGoodsId());
         }
     }
 

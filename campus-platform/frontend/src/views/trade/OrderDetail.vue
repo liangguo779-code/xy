@@ -12,7 +12,9 @@
           <el-tag :type="statusType(order.status)">{{ order.statusDesc }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="商品">{{ order.goodsTitle }}</el-descriptions-item>
-        <el-descriptions-item label="成交价">¥{{ order.goodsAmount }}</el-descriptions-item>
+        <el-descriptions-item label="成交价">
+          ¥{{ order.goodsAmount }}<template v-if="order.quantity > 1">（×{{ order.quantity }}）</template>
+        </el-descriptions-item>
         <el-descriptions-item label="交易方式">
           {{ order.dealType === 0 ? '线下自提' : '平台配送' }}
         </el-descriptions-item>
@@ -21,7 +23,8 @@
         </el-descriptions-item>
         <el-descriptions-item label="买家">{{ order.buyerNickname }}</el-descriptions-item>
         <el-descriptions-item label="卖家">{{ order.sellerNickname }}</el-descriptions-item>
-        <el-descriptions-item v-if="order.pickupLocation" label="自提地点">
+        <el-descriptions-item v-if="order.pickupLocation"
+                             :label="order.goodsType === 1 ? '收货地址' : '自提地点'">
           {{ order.pickupLocation }}
         </el-descriptions-item>
         <!-- 核销码只对买家显示 -->
@@ -250,6 +253,8 @@ const isSeller = computed(() => order.value?.sellerId === currentUserId.value)
 const canCancel = computed(() => {
   if (!order.value) return false
   const s = order.value.status
+  // 热卖订单：待确认(10)的取消按钮在确认面板内；确认后进入派单流程不可自助取消
+  if (order.value.goodsType === 1) return false
   // 已完成(3)、已取消(4)、已派单(7)、已取货(8)、已送达(9) 不能取消
   return s !== 3 && s !== 4 && s !== 7 && s !== 8 && s !== 9
 })
@@ -258,10 +263,12 @@ const canCancel = computed(() => {
 const statusType = (s) => {
   const map = {
     0: 'warning', 1: '', 3: 'success', 4: 'danger', 5: 'warning',
-    6: '', 7: '', 8: '', 9: 'success'
+    6: '', 7: '', 8: '', 9: 'success', 10: 'warning', 11: 'info'
   }
   return map[s] || 'info'
 }
+
+// ── 加载 ──────────────────────────────────────────────────────
 
 /** 加载订单详情，并查询当前用户评价状态与配送物流轨迹 */
 async function loadOrder() {
@@ -389,6 +396,45 @@ onMounted(loadOrder)
 <style scoped>
 .actions {
   margin-top: 20px;
+}
+
+/* 热卖二次确认面板 */
+.confirm-panel {
+  border-color: #fde2e2;
+  background: #fef0f0;
+}
+
+.confirm-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1D2129;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.countdown {
+  font-size: 20px;
+  font-weight: 700;
+  color: #E6A23C;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown.urgent {
+  color: #F56C6C;
+}
+
+.confirm-desc {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.7;
+  margin: 0 0 14px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 12px;
 }
 
 .verify-area {

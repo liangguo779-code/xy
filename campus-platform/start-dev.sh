@@ -78,7 +78,7 @@ if [ "$INFRA_OK" = false ]; then
     echo ""
     echo "请先启动基础设施容器:"
     echo "  bash start-all.sh          # 一键启动全部"
-    echo "  docker compose up -d mysql redis elasticsearch  # 仅启动容器"
+    echo "  docker-compose up -d mysql redis elasticsearch  # 仅启动容器"
     exit 1
 fi
 
@@ -248,7 +248,7 @@ echo "  异步重建索引与知识库..."
 ADMIN_TOKEN=$(curl -s -X POST http://localhost:9000/api/auth/login \
     -H 'Content-Type: application/json' \
     -d '{"username":"admin","password":"admin123"}' 2>/dev/null \
-    | python -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("token",""))' 2>/dev/null)
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write((j.data&&j.data.token)||"")}catch(e){}})' 2>/dev/null)
 
 if [ -n "$ADMIN_TOKEN" ]; then
     # ES 商品索引重建（异步，不等结果）

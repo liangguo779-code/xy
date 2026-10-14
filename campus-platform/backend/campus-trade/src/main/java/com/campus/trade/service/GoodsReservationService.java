@@ -1,7 +1,9 @@
 package com.campus.trade.service;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
+import com.campus.common.service.EsOutboxService;
 import com.campus.trade.entity.Goods;
 import com.campus.trade.mapper.GoodsMapper;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -25,8 +28,8 @@ import java.util.concurrent.TimeUnit;
  * 不会把新占位翻回在售（P0-3 同类防护），重复释放天然幂等。
  *
  * <p>被发起交易的商品保留展示：列表/搜索/详情标记"已预订"（status=3 且 reserve_ref 非空属于可检索集），
- * 重复发起与直接下单均被拒绝；恢复后回到在售。ES 状态同步在事务提交后执行，
- * ES 故障不影响库存一致性（可由 reindex 兜底）。
+ * 重复发起与直接下单均被拒绝；恢复后回到在售。ES 状态走事务性发件箱（{@code EsOutboxService}），
+ * 与业务写同事务，ES 故障不影响库存一致性，恢复后由发件箱自动追平。
  */
 @Slf4j
 @Service
@@ -34,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 public class GoodsReservationService {
 
     private final GoodsMapper goodsMapper;
-    private final GoodsIndexService goodsIndexService;
+    private final EsOutboxService esOutboxService;
     private final RedissonClient redisson;
 
     /**
@@ -45,6 +48,7 @@ public class GoodsReservationService {
      * @param goodsId 商品 ID
      * @param sessionId 发起方聊天会话 ID，作为占位持有者
      */
+    @Transactional(rollbackFor = Exception.class)
     public void reserveForRequest(Long goodsId, Long sessionId) {
         RLock lock = redisson.getLock("lock:goods:" + goodsId);
         lockGoods(lock, goodsId);
@@ -72,13 +76,9 @@ public class GoodsReservationService {
             }
 
             log.info("发起交易占位成功: goodsId={}, sessionId={}", goodsId, sessionId);
-            // 被发起交易的商品保留展示（列表/详情标记"已预订"）：提交后同步 ES 最新状态
-            runAfterCommit(() -> {
-                Goods indexed = goodsMapper.selectById(goodsId);
-                if (indexed != null) {
-                    goodsIndexService.indexGoods(indexed);
-                }
-            });
+            // 被发起交易的商品保留展示（列表/详情标记"已预订"）：同事务写发件箱，
+            // 提交后自动同步 ES 最新状态，崩溃不丢；处理器会重读库取到 reserve_ref
+            esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goodsId);
         } finally {
             unlockAfterCompletion(lock);
         }
@@ -91,6 +91,7 @@ public class GoodsReservationService {
      * @param goodsId 商品 ID
      * @param sessionId 释放方聊天会话 ID（占位持有者）
      */
+    @Transactional(rollbackFor = Exception.class)
     public void releaseByRequest(Long goodsId, Long sessionId) {
         if (goodsId == null || sessionId == null) {
             return;
@@ -111,13 +112,8 @@ public class GoodsReservationService {
                 return;
             }
             log.info("库存已恢复: goodsId={}, sessionId={}", goodsId, sessionId);
-            // 商品重新上架显示：ES 回填移出事务，提交后执行
-            runAfterCommit(() -> {
-                Goods restored = goodsMapper.selectById(goodsId);
-                if (restored != null) {
-                    goodsIndexService.indexGoods(restored);
-                }
-            });
+            // 商品重新上架显示：同事务写发件箱，提交后自动同步 ES（处理器重读库取最新状态）
+            esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goodsId);
         } finally {
             unlockAfterCompletion(lock);
         }
@@ -152,28 +148,6 @@ public class GoodsReservationService {
             });
         } else if (lock.isHeldByCurrentThread()) {
             lock.unlock();
-        }
-    }
-
-    /** 事务提交后执行（无事务上下文时立即执行）：ES 同步等旁路操作，回滚后不产生副作用 */
-    private void runAfterCommit(Runnable task) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    try {
-                        task.run();
-                    } catch (Exception e) {
-                        log.warn("事务提交后库存旁路任务执行失败", e);
-                    }
-                }
-            });
-        } else {
-            try {
-                task.run();
-            } catch (Exception e) {
-                log.warn("库存旁路任务执行失败", e);
-            }
         }
     }
 }

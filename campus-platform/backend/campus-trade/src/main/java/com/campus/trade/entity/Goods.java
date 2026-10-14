@@ -53,6 +53,21 @@ public class Goods {
     private Integer type;
 
     /**
+     * 商品类型：0-二手（一物一占位） 1-热卖（管理员发布，库存计数扣减）。
+     * 热卖商品不走 status 0→3 占位逻辑，库存由 Redis hot:stock:{goodsId} 计数仲裁（见 HotSaleStockService）。
+     */
+    private Integer goodsType;
+
+    /** 可售库存（仅热卖）：DB 侧记录，运行时以 Redis hot:stock:{goodsId} 为扣减权威，二者同事务内联动 */
+    private Integer stock;
+
+    /** 已售数量（仅热卖）：二次确认成功时累加 */
+    private Integer sales;
+
+    /** 单人限购数量（仅热卖）：NULL/0 表示不限购 */
+    private Integer purchaseLimit;
+
+    /**
      * 商品状态：0-已上架 1-已下架 2-已售出 3-待审核/已预订。
      *
      * <p>注意 3 是双义值（历史兼容，不拆分枚举值）：管理审核侧表示"待审核"，

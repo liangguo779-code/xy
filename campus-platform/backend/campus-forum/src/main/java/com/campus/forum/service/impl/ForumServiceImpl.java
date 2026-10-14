@@ -6,10 +6,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.common.entity.BanRecord;
 import com.campus.common.entity.ContentAuditLog;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.moderation.AuditLogService;
 import com.campus.common.moderation.ContentFilterService;
 import com.campus.common.service.BanService;
+import com.campus.common.service.EsOutboxService;
 import com.campus.common.service.NotificationService;
 import com.campus.forum.entity.Comment;
 import com.campus.forum.entity.Post;
@@ -50,6 +52,7 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
     private final NotificationService notificationService;
     private final StringRedisTemplate redisTemplate;
     private final PostIndexService postIndexService;
+    private final EsOutboxService esOutboxService;
     private final PostHotService postHotService;
     private final PostTopService postTopService;
     private final ContentFilterService contentFilterService;
@@ -183,6 +186,7 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
 
     /** 获取帖子详情并累加浏览量，userId 非空时回填当前用户点赞状态 */
     @Override
+    @Transactional
     public Post getPostDetail(Long id, Long userId) {
         Post post = getById(id);
         if (post == null || post.getStatus() != 1) throw new BusinessException("帖子不存在");
@@ -191,8 +195,8 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
         // getById 拿到的是自增前旧值，回填自增后的浏览数（先判 null）
         post.setViewCount(post.getViewCount() == null ? 1 : post.getViewCount() + 1);
         postHotService.onView(id);
-        // 同步 ES 计数字段（hot 排序依赖 view/like/comment 计数），复用同一次计数推算
-        postIndexService.updateCounts(id, post.getViewCount(), post.getLikeCount(), post.getCommentCount());
+        // 浏览量要进 ES（hot 排序依赖 view/like/comment 计数）：写发件箱，重放时重读库取最新计数
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, id);
         if (userId != null) {
             // 点赞状态存于 Redis，存在 key 即视为已点赞
             String likeKey = "post_like:" + id + ":" + userId;
@@ -203,6 +207,7 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
 
     /** 发帖：校验论坛封禁与内容安全后落库，计数清零、未置顶、状态正常 */
     @Override
+    @Transactional
     public Post createPost(Long userId, Post post) {
         // 检查论坛封禁
         BanRecord ban = banService.checkUserBan(userId, "forum");
@@ -238,14 +243,15 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
         if (!hits.isEmpty()) {
             publishAudit("post", post.getId(), post.getTitle() + "\n" + post.getContent(), hits, post.getStatus());
         }
-        // 同步 ES 搜索索引 + 初始化热度
-        postIndexService.indexPost(post);
+        // 写入 ES 同步意图（同事务）+ 初始化热度
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, post.getId());
         postHotService.onCreate(post.getId());
         return post;
     }
 
     /** 编辑帖子（仅作者）：只覆盖标题/正文/分类/图片，计数与状态不受影响 */
     @Override
+    @Transactional
     public Post updatePost(Long userId, Long id, Post post) {
         Post existing = getById(id);
         if (existing == null || existing.getStatus() != 1) throw new BusinessException("帖子不存在");
@@ -256,8 +262,8 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
         existing.setCategory(post.getCategory());
         existing.setImages(post.getImages());
         updateById(existing);
-        // 同步 ES 搜索索引
-        postIndexService.indexPost(existing);
+        // 写入 ES 同步意图（同事务）
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, id);
         // 置顶帖内容可能被缓存，编辑后失效
         postTopService.invalidate();
         return existing;
@@ -265,14 +271,15 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
 
     /** 删除帖子（仅作者）：逻辑删除，status 置 0 保留数据便于恢复与审计 */
     @Override
+    @Transactional
     public void deletePost(Long userId, Long id) {
         Post existing = getById(id);
         if (existing == null || existing.getStatus() != 1) throw new BusinessException("帖子不存在");
         if (!existing.getUserId().equals(userId)) throw new BusinessException("只能删除自己的帖子");
 
         update(new LambdaUpdateWrapper<Post>().eq(Post::getId, id).set(Post::getStatus, 0));
-        // 同步移除 ES 索引与热度/缓存
-        postIndexService.deletePost(id);
+        // 写入 ES 移除意图（同事务）+ 清理热度/缓存
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_POST, id);
         postHotService.onDelete(id);
         postTopService.invalidate();
     }
@@ -297,20 +304,17 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
             // GREATEST 防止并发取消点赞时计数被减成负数
             update(new LambdaUpdateWrapper<Post>().eq(Post::getId, postId).setSql("like_count = GREATEST(like_count - 1, 0)"));
             postHotService.onLike(postId, false);
-            // 一次查库取最新计数并同步 ES
-            Post latest = getById(postId);
-            if (latest != null) {
-                postIndexService.updateCounts(postId, latest.getViewCount(), latest.getLikeCount(), latest.getCommentCount());
-            }
+            // 写发件箱同步 ES（重放时重读库取最新计数，无需此处再查）
+            esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, postId);
             return false;
         }
         redisTemplate.opsForValue().set(likeKey, "1");
         update(new LambdaUpdateWrapper<Post>().eq(Post::getId, postId).setSql("like_count = like_count + 1"));
         postHotService.onLike(postId, true);
-        // 一次查库结果既用于同步 ES 计数，也用于通知帖子作者
+        // 写发件箱同步 ES；此处查库仅用于通知帖子作者
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, postId);
         Post post = getById(postId);
         if (post != null) {
-            postIndexService.updateCounts(postId, post.getViewCount(), post.getLikeCount(), post.getCommentCount());
             if (!post.getUserId().equals(userId)) {
                 notificationService.send(post.getUserId(), "forum_like",
                         "帖子被点赞", "有人点赞了你的帖子「" + post.getTitle() + "」",
@@ -414,6 +418,7 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
 
     /** 发表评论或回复：落库、累加帖子评论数，并通知帖子作者与被回复者 */
     @Override
+    @Transactional
     public Comment createComment(Long userId, Long postId, Long parentId, String content, String images) {
         // 检查论坛封禁
         BanRecord ban = banService.checkUserBan(userId, "forum");
@@ -448,11 +453,8 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
 
         update(new LambdaUpdateWrapper<Post>().eq(Post::getId, postId).setSql("comment_count = comment_count + 1"));
         postHotService.onComment(postId);
-        // 一次查库取最新计数，用于同步 ES 计数字段
-        Post latest = getById(postId);
-        if (latest != null) {
-            postIndexService.updateCounts(postId, latest.getViewCount(), latest.getLikeCount(), latest.getCommentCount());
-        }
+        // 写发件箱同步 ES（重放时重读库取最新计数）
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, postId);
 
         // 通知帖子作者有新评论
         if (!post.getUserId().equals(userId)) {
@@ -548,11 +550,8 @@ public class ForumServiceImpl extends ServiceImpl<PostMapper, Post> implements F
                 .setSql("comment_count = GREATEST(comment_count - " + removed + ", 0)"));
         postHotService.onCommentsRemoved(postId, removed);
 
-        // 同步 ES 计数字段，保证 hot 排序不使用陈旧值
-        Post latest = getById(postId);
-        if (latest != null) {
-            postIndexService.updateCounts(postId, latest.getViewCount(), latest.getLikeCount(), latest.getCommentCount());
-        }
+        // 写发件箱同步 ES，保证 hot 排序不使用陈旧计数
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, postId);
 
         // 清理被删评论的点赞状态 key（无主 key 由每日清理兜底，这里即时清理更及时）
         for (Comment c : toDelete) {

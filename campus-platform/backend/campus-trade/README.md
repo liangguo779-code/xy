@@ -6,6 +6,7 @@
 
 - 商品发布、编辑、上下架、擦亮、搜索（Elasticsearch）、推荐
 - 订单全流程：创建→确认→支付→配送→收货→评价
+- 热卖商品（管理员发布、Redis 队列开单、二次确认后 worker 消费落库进派单大厅）
 - 买家/卖家即时聊天（WebSocket）
 - 收藏商品、关注用户、拉黑用户
 - 交易评价（含申诉、回复）
@@ -46,6 +47,45 @@
 | POST | `/api/orders/review` | 创建订单评价 |
 | GET | `/api/orders/my` | 我的订单（按买家/卖家身份、状态筛选） |
 | GET | `/api/orders/{id}` | 订单详情 |
+
+### 热卖商品订单（OrderController，同前缀 `/api/orders`）
+
+热卖商品由管理员发布、多库存、线下收款，走「**list 即开单队列**」模型：下单只产生 Redis 消息（票据），
+**订单的「产生」= worker 消费 list 的时刻**。确认截止默认 60s（`trade.hot-order.confirm-timeout`），超时自动取消并释放库存。
+
+```
+下单   Lua(查库存+DECRBY+RPUSH 消息进 hot:pending:{goodsId})   ← 无 DB 写
+确认   Lua(LREM pending + RPUSH hot:confirmed:queue)            ← 无 DB 写
+消费   HotOrderConsumer: LPOP→processing → @Transactional 落库
+       (INSERT order(status=6) + goods.stock/sales + createDeliveryOrder)
+       → afterCommit 才 LREM processing  ★LREM 绝不能进事务体（Redis 不回滚）★
+超时   pending 桶扫描比对消息 expireAt → Lua(LREM + INCRBY 回补)
+```
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/orders/hot` | 热卖下单：Lua 扣库存+票据入待确认队列，返回 `HotTicketVO`（无 `id`，按 `orderNo` 跳票据页） |
+| PUT | `/api/orders/hot/{orderNo}/confirm-purchase?goodsId=` | 二次确认：消息迁入已确认队列，返回「处理中」；worker 随后落库进派单大厅 |
+| PUT | `/api/orders/hot/{orderNo}/cancel-hot?goodsId=` | 待确认期取消并释放库存；确认后不可自助取消，走人工/纠纷 |
+| GET | `/api/orders/hot/ticket/{orderNo}` | 票据详情（处理中轮询；已落库回填 `orderId` 供跳转） |
+| GET | `/api/orders/hot/tickets/my` | 我的热卖票据（「我的订单」合并展示用，票据排前） |
+
+Redis key（`HotSaleStockService` + `resources/lua/`）：
+
+| Key | 作用 |
+|---|---|
+| `hot:stock:{goodsId}` | 可售库存计数（扣减权威，DB 只作账本） |
+| `hot:pending:{goodsId}` | **待确认桶**，成员 = 订单消息 JSON |
+| `hot:confirmed:queue` | **已确认队列**，等 worker 落库 |
+| `hot:order:processing` | 消费中转区（已认领、尚未摘除的可靠消费缓冲） |
+
+并发保证：
+
+- 下单：Lua 原子「查库存+DECRBY+RPUSH 消息」，同商品同买家限一张在途票（Lua 内返回 -2，与 push 原子）
+- **确认 vs 超时**：两边对同一成员串 LREM，恰好一方拿到 1（原子仲裁）；确认迁桶、释放回补
+- **消费幂等**：`selectCount(orderNo)` 短路 → `UNIQUE(order_no)` 兜底（并发 worker 抛 `DuplicateKeyException` 视为成功）→ processing 摘除幂等
+- **崩溃恢复**：认领后崩（无 DB 行）→ 对账重投已确认队列；落库后崩（有 DB 行）→ 对账按 orderNo 摘除。两段都可恢复，无丢单路径
+- 超时释放走 pending 桶扫描（`trade.hot-order.release-scan-ms`，默认 10s），处理中转区对账默认 30s
 
 ### ChatController `/api/chat`
 
@@ -149,6 +189,20 @@
 |------|------|------|
 | GET | `/api/admin/orders` | 订单列表（按状态/交易类型筛选） |
 | GET | `/api/admin/orders/stats` | 订单统计（总数、已完成、已取消） |
+
+### AdminHotGoodsController `/api/admin/hot-goods`（需管理员权限）
+
+热卖商品仅管理员发布，发布即上架（免审核），库存计数写入 Redis（`hot:stock:{goodsId}`）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/admin/hot-goods` | 发布热卖商品（初始库存/限购/发货点） |
+| PUT | `/api/admin/hot-goods/{id}/stock` | 调整库存（delta 正补货/负盘亏，DB+Redis 同步） |
+| PUT | `/api/admin/hot-goods/{id}/off` | 下架（拒新单，在途订单继续履约） |
+| GET | `/api/admin/hot-goods` | 热卖商品列表（可售库存取 Redis 计数） |
+| GET | `/api/admin/hot-goods/orders` | 热卖订单监控（DB 订单，可按 status 筛选） |
+| GET | `/api/admin/hot-goods/tickets` | 热卖票据监控（待确认/已确认/处理中三桶全量，前端与 DB 订单合并展示） |
+| GET | `/api/admin/hot-goods/{id}/stock-overview` | 库存概览（DB/Redis/已售/在途票据数/队列积压，对账观测） |
 
 ### AdminDisputeController `/api/admin/disputes`（需管理员权限）
 

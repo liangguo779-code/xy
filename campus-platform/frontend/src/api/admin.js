@@ -54,6 +54,37 @@ export function getOrderStats() {
   return request.get('/api/admin/orders/stats')
 }
 
+// 热卖商品管理（仅管理员可发布/调库存/下架，发布即上架免审核）
+/** 发布热卖商品（初始库存/限购/发货点，Redis 同步初始化库存计数） */
+export function publishHotGoods(data) {
+  return request.post('/api/admin/hot-goods', data)
+}
+/** 调整库存（delta 正数补货/负数盘亏，DB+Redis 同步） */
+export function adjustHotStock(id, delta) {
+  return request.put(`/api/admin/hot-goods/${id}/stock`, null, { params: { delta } })
+}
+/** 下架热卖商品（拒新单，在途订单继续履约） */
+export function offHotGoods(id, reason) {
+  return request.put(`/api/admin/hot-goods/${id}/off`, null, { params: { reason } })
+}
+/** 热卖商品列表（可售库存取 Redis 计数） */
+export function getHotGoods(params) {
+  return request.get('/api/admin/hot-goods', { params })
+}
+/** 热卖订单监控（可按 status=10 看待确认） */
+export function getHotOrders(params) {
+  return request.get('/api/admin/hot-goods/orders', { params })
+}
+
+/** 热卖票据监控：待确认/已确认/处理中三桶全量（订单尚未落库的在途单） */
+export function getHotTickets() {
+  return request.get('/api/admin/hot-goods/tickets')
+}
+/** 库存概览（DB/Redis/已售/待确认数，对账观测） */
+export function getHotStockOverview(id) {
+  return request.get(`/api/admin/hot-goods/${id}/stock-overview`)
+}
+
 // 纠纷管理
 /** 分页检索纠纷（params 可按处理状态过滤） */
 export function getAdminDisputes(params) {

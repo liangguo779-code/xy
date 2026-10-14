@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "campus.ai")
 public class AiProperties {
 
-    /** AI 运行时数据的根目录（知识库目录、BM25 快照）。 */
+    /** AI 运行时数据的根目录（知识库目录等）。 */
     private String home = "./runtime";
 
     /** 知识库相关配置。 */
@@ -68,7 +68,7 @@ public class AiProperties {
         private String embeddingModelPath;
         /** 重排序后最终保留的片段数。 */
         private int rerankTopk = 5;
-        /** 单次向量/BM25 检索的候选数（实际会多取以补偿父分块过滤）。 */
+        /** 单次向量/关键词检索的候选数（实际会多取以补偿父分块过滤）。 */
         private int retrieveTopk = 10;
         /** BGE reranker（cross-encoder）的 HuggingFace 仓库地址。 */
         private String rerankerHfRepo = "Xenova/bge-reranker-base";

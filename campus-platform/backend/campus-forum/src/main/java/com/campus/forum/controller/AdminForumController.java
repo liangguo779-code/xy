@@ -4,13 +4,16 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.result.R;
+import com.campus.common.service.EsOutboxService;
 import com.campus.forum.entity.Comment;
 import com.campus.forum.entity.Post;
 import com.campus.forum.mapper.CommentMapper;
 import com.campus.forum.mapper.PostMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 /** 管理后台-论坛管理：帖子与评论的审核、置顶、隐藏与删除 */
@@ -23,6 +26,7 @@ public class AdminForumController {
     private final PostMapper postMapper;
     private final CommentMapper commentMapper;
     private final com.campus.forum.service.PostIndexService postIndexService;
+    private final EsOutboxService esOutboxService;
     private final com.campus.forum.service.PostHotService postHotService;
     private final com.campus.forum.service.PostTopService postTopService;
     private final com.campus.forum.service.ForumService forumService;
@@ -45,17 +49,15 @@ public class AdminForumController {
 
     /** 切换帖子置顶状态（已置顶则取消，否则置顶） */
     @PutMapping("/posts/{id}/top")
+    @Transactional
     public R<Void> toggleTop(@PathVariable Long id) {
         Post post = postMapper.selectById(id);
         if (post == null) throw new BusinessException("帖子不存在");
         postMapper.update(null, new LambdaUpdateWrapper<Post>()
                 .eq(Post::getId, id)
                 .set(Post::getIsTop, post.getIsTop() == 1 ? 0 : 1));
-        // 同步 ES 索引中的置顶标记
-        Post updated = postMapper.selectById(id);
-        if (updated != null) {
-            postIndexService.indexPost(updated);
-        }
+        // 写入 ES 同步意图（置顶标记参与 latest 排序），重放时重读库
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, id);
         // 置顶集合变化，失效置顶列表缓存
         postTopService.invalidate();
         return R.ok();
@@ -63,12 +65,13 @@ public class AdminForumController {
 
     /** 隐藏帖子（status 置 0，用户端不再展示） */
     @PutMapping("/posts/{id}/hide")
+    @Transactional
     public R<Void> hidePost(@PathVariable Long id) {
         postMapper.update(null, new LambdaUpdateWrapper<Post>()
                 .eq(Post::getId, id)
                 .set(Post::getStatus, 0));
-        // 从搜索索引与热度缓存移除
-        postIndexService.deletePost(id);
+        // 写入 ES 移除意图 + 清理热度缓存
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_POST, id);
         postHotService.onDelete(id);
         postTopService.invalidate();
         return R.ok();
@@ -76,9 +79,10 @@ public class AdminForumController {
 
     /** 物理删除帖子（与用户端的逻辑删除不同） */
     @DeleteMapping("/posts/{id}")
+    @Transactional
     public R<Void> deletePost(@PathVariable Long id) {
         postMapper.deleteById(id);
-        postIndexService.deletePost(id);
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_POST, id);
         postHotService.onDelete(id);
         postTopService.invalidate();
         return R.ok();
@@ -86,15 +90,13 @@ public class AdminForumController {
 
     /** 恢复已隐藏的帖子（status 置 1） */
     @PutMapping("/posts/{id}/restore")
+    @Transactional
     public R<Void> restorePost(@PathVariable Long id) {
         postMapper.update(null, new LambdaUpdateWrapper<Post>()
                 .eq(Post::getId, id)
                 .set(Post::getStatus, 1));
-        // 重新写入搜索索引
-        Post restored = postMapper.selectById(id);
-        if (restored != null) {
-            postIndexService.indexPost(restored);
-        }
+        // 写入 ES 同步意图，重放时重读库取恢复后的状态
+        esOutboxService.recordIndex(EsSyncHandler.TYPE_POST, id);
         // 恢复的帖子可能带置顶标记，失效置顶列表缓存
         postTopService.invalidate();
         return R.ok();

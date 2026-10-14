@@ -22,6 +22,10 @@
             <el-icon><Goods /></el-icon>
             <span>商品管理</span>
           </el-menu-item>
+          <el-menu-item index="/admin/hot-goods">
+            <el-icon><Sell /></el-icon>
+            <span>热卖管理</span>
+          </el-menu-item>
           <el-menu-item index="/admin/orders">
             <el-icon><List /></el-icon>
             <span>订单管理</span>
@@ -89,7 +93,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document, Star, Filter
+  DataAnalysis, User, Goods, List, Warning, Bell, Lock, Setting, Notebook, Back, Document, Star, Filter, Sell
 } from '@element-plus/icons-vue'
 
 const route = useRoute()

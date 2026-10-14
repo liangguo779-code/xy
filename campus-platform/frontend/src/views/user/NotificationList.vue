@@ -71,6 +71,14 @@ async function handleRead(n) {
       if (extra.orderId) router.push(`/orders/${extra.orderId}`)
     } catch { /* ignore */ }
   }
+  // 热卖通知：已落库的跳订单详情，未落库的跳票据页
+  if (n.type?.startsWith('hot_') && n.extra) {
+    try {
+      const extra = JSON.parse(n.extra)
+      if (extra.orderId) router.push(`/orders/${extra.orderId}`)
+      else if (extra.orderNo) router.push(`/hot-ticket/${extra.orderNo}`)
+    } catch { /* ignore */ }
+  }
   // 举报通知跳转到我的举报
   if (n.type?.startsWith('report_')) {
     router.push('/my-reports')

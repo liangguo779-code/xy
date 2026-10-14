@@ -8,11 +8,13 @@ import com.campus.common.exception.BusinessException;
 import com.campus.trade.dto.DeliveryOrderVO;
 import com.campus.trade.entity.DeliveryOrder;
 import com.campus.trade.entity.DeliveryTrack;
+import com.campus.trade.entity.Goods;
 import com.campus.trade.entity.Order;
 import com.campus.trade.enums.DeliveryStatus;
 import com.campus.trade.enums.OrderStatus;
 import com.campus.trade.mapper.DeliveryOrderMapper;
 import com.campus.trade.mapper.DeliveryTrackMapper;
+import com.campus.trade.mapper.GoodsMapper;
 import com.campus.trade.mapper.OrderMapper;
 import com.campus.trade.service.DeliveryService;
 import com.campus.trade.service.DeliveryTrackService;
@@ -44,6 +46,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
     private final DeliveryOrderMapper deliveryMapper;
     private final DeliveryTrackMapper trackMapper;
     private final OrderMapper orderMapper;
+    private final GoodsMapper goodsMapper;
     private final UserMapper userMapper;
     private final AddressMapper addressMapper;
     private final ChatWebSocketHandler wsHandler;
@@ -69,8 +72,13 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
 
         DeliveryOrder delivery = new DeliveryOrder();
         delivery.setOrderId(orderId);
-        delivery.setBuyerAddr(getUserDormitory(order.getBuyerId()));
-        delivery.setSellerAddr(getUserDormitory(order.getSellerId()));
+        // 买家地址：热卖订单下单时已存收货地址快照（order.pickupLocation），优先取它；否则回退宿舍/默认地址
+        delivery.setBuyerAddr(order.getPickupLocation() != null && !order.getPickupLocation().isBlank()
+                ? order.getPickupLocation()
+                : getUserDormitory(order.getBuyerId()));
+        // 卖家/取货地址：热卖订单取商品发货点（管理员发布时填写），二手订单取卖家宿舍/默认地址
+        delivery.setSellerAddr(resolveSellerAddr(order));
+        delivery.setDeliveryFee(order.getServiceFee());
         delivery.setStatus(DeliveryStatus.PENDING.getCode());
         deliveryMapper.insert(delivery);
 
@@ -219,7 +227,7 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
 
         // 获取卖家地址用于取货（定点更新，避免整行覆盖冲掉刚流转的状态）
         if (delivery.getSellerAddr() == null) {
-            String sellerAddr = getUserDormitory(order.getSellerId());
+            String sellerAddr = resolveSellerAddr(order);
             delivery.setSellerAddr(sellerAddr);
             deliveryMapper.update(null, new LambdaUpdateWrapper<DeliveryOrder>()
                     .eq(DeliveryOrder::getId, deliveryId)
@@ -330,6 +338,17 @@ public class DeliveryServiceImpl extends ServiceImpl<DeliveryOrderMapper, Delive
         DeliveryOrder delivery = deliveryMapper.selectById(id);
         if (delivery == null) throw new BusinessException("工单不存在");
         return delivery;
+    }
+
+    /** 取货地址：热卖订单用商品发货点（goods.location），二手订单用卖家宿舍/默认地址 */
+    private String resolveSellerAddr(Order order) {
+        if (order.getGoodsType() != null && order.getGoodsType() == 1) {
+            Goods goods = goodsMapper.selectById(order.getGoodsId());
+            if (goods != null && goods.getLocation() != null && !goods.getLocation().isBlank()) {
+                return goods.getLocation();
+            }
+        }
+        return getUserDormitory(order.getSellerId());
     }
 
     private String getUserDormitory(Long userId) {

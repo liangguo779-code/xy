@@ -48,4 +48,10 @@ public class OrderVO {
     private LocalDateTime completeTime;
     /** 下单时间 */
     private LocalDateTime createTime;
+    /** 购买数量（热卖用），二手订单为 1 */
+    private Integer quantity;
+    /** 二次确认截止时间（仅热卖待确认订单），前端据此渲染倒计时 */
+    private LocalDateTime expireTime;
+    /** 商品类型 0-二手 1-热卖，前端据此切换下单/确认购买交互 */
+    private Integer goodsType;
 }

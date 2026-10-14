@@ -18,12 +18,9 @@ import com.campus.forum.mapper.PostMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -32,11 +29,11 @@ import java.util.Map;
 /**
  * 帖子搜索索引服务：维护帖子的 Elasticsearch 倒排索引（ik 中文分词）。
  *
- * <p>发帖/编辑/删帖时同步索引，保证搜索结果与库内可见性一致；
- * ES 不可用时由调用方降级为数据库 LIKE 查询（见 ForumServiceImpl）。
+ * <p>本类只负责"怎么写索引"，不负责"什么时候写"。调用方是 {@code PostEsSyncHandler}：
+ * 业务侧改调 {@code EsOutboxService.recordIndex/recordDelete} 把同步意图写进事务性发件箱，
+ * 由发件箱轮询/踢一脚落到此处，崩溃不丢同步意图。
  *
- * <p>同步失败不静默：失败操作记入 Redis 待修复队列（{@code forum:es:pending-ops}），
- * 由定时任务重放，避免"删了但索引还在"的内容泄漏（P0-6）。
+ * <p>ES 不可用时由调用方降级为数据库 LIKE 查询（见 ForumServiceImpl）。
  */
 @Slf4j
 @Service
@@ -44,18 +41,6 @@ import java.util.Map;
 public class PostIndexService {
 
     private static final String INDEX_NAME = "posts";
-
-    /** ES 同步失败待修复队列：list，元素格式 "index:{postId}" / "delete:{postId}" */
-    private static final String PENDING_KEY = "forum:es:pending-ops";
-
-    /** 待修复队列过期时间（天）：超过仍未修复则丢弃，防止死信永久滞留 */
-    private static final long PENDING_TTL_DAYS = 7;
-
-    /** 待修复队列最大长度：只保留最近 N 条，防止 ES 长期不可用时队列无限增长 */
-    private static final int PENDING_MAX = 1000;
-
-    /** 每次重放最多处理的操作数，避免单次任务耗时过长 */
-    private static final int REPAIR_BATCH = 200;
 
     /** 深分页上限：ES from+size 受 max_result_window=10000 限制，超限直接报友好错误 */
     private static final int MAX_RESULT_WINDOW = 10000;
@@ -65,7 +50,6 @@ public class PostIndexService {
 
     private final ElasticsearchClient esClient;
     private final PostMapper postMapper;
-    private final StringRedisTemplate redisTemplate;
 
     @PostConstruct
     public void initIndex() {
@@ -109,7 +93,10 @@ public class PostIndexService {
                 .mappings(m -> m.properties(properties)));
     }
 
-    /** 发帖/编辑后同步索引；失败记入待修复队列（不阻塞业务主流程） */
+    /**
+     * 写入/覆盖帖子索引文档。失败<b>抛出</b>：调用方是 {@code PostEsSyncHandler}，
+     * 由发件箱捕获后退避重试。业务代码请改调 {@code EsOutboxService.recordIndex}。
+     */
     public void indexPost(Post post) {
         try {
             PostDocument doc = PostDocument.fromPost(post);
@@ -118,44 +105,24 @@ public class PostIndexService {
                     .id(String.valueOf(post.getId()))
                     .document(doc));
         } catch (Exception e) {
-            // 同步失败不能静默吞掉：否则已下架帖子仍会出现在搜索结果（P0-6），
-            // 记入 Redis 待修复队列由定时任务重放，同时保留告警日志。
-            log.error("索引帖子失败, postId={}: {}", post.getId(), e.getMessage());
-            enqueuePending("index", post.getId());
-        }
-    }
-
-    /** 删帖后从索引移除；失败记入待修复队列（不阻塞业务主流程） */
-    public void deletePost(Long postId) {
-        try {
-            esClient.delete(d -> d.index(INDEX_NAME).id(String.valueOf(postId)));
-        } catch (Exception e) {
-            log.error("删除帖子索引失败, postId={}: {}", postId, e.getMessage());
-            enqueuePending("delete", postId);
+            throw new RuntimeException("索引帖子失败, postId=" + post.getId() + ": " + e.getMessage(), e);
         }
     }
 
     /**
-     * 局部更新计数字段（浏览/点赞/评论），浏览、点赞、评论后回写，
-     * 保证 hot 排序用的 likeCount/commentCount/viewCount 不是陈旧值。
-     * 失败时记入待修复队列（重放走全量重建单条，可一并修正计数），不阻塞主流程。
+     * 从索引移除帖子文档。失败抛出，由发件箱退避重试（同 {@link #indexPost}）。
+     * 文档不存在时 ES 返回 404，视作已达成目标，不抛出。
      */
-    public void updateCounts(Long postId, Integer viewCount, Integer likeCount, Integer commentCount) {
+    public void deletePost(Long postId) {
         try {
-            Map<String, Object> counts = new HashMap<>();
-            counts.put("viewCount", viewCount);
-            counts.put("likeCount", likeCount);
-            counts.put("commentCount", commentCount);
-            // update API 部分更新：仅覆盖三个计数字段，其余字段保留
-            esClient.update(u -> u
-                    .index(INDEX_NAME)
-                    .id(String.valueOf(postId))
-                    .doc(JsonData.of(counts)),
-                    PostDocument.class);
+            esClient.delete(d -> d.index(INDEX_NAME).id(String.valueOf(postId)));
+        } catch (co.elastic.clients.elasticsearch._types.ElasticsearchException e) {
+            if (e.status() == 404) {
+                return;
+            }
+            throw new RuntimeException("删除帖子索引失败, postId=" + postId + ": " + e.getMessage(), e);
         } catch (Exception e) {
-            log.warn("更新帖子计数索引失败, postId={}: {}", postId, e.getMessage());
-            // 计数不回写会让 hot 排序失真（P0-5），入队后由重放任务重建该文档
-            enqueuePending("index", postId);
+            throw new RuntimeException("删除帖子索引失败, postId=" + postId + ": " + e.getMessage(), e);
         }
     }
 
@@ -198,8 +165,6 @@ public class PostIndexService {
                     break;
                 }
             }
-            // 全量重建后索引与库一致，历史失败操作无需再重放
-            redisTemplate.delete(PENDING_KEY);
             log.info("全量重建索引完成，共 {} 条帖子", total);
         } catch (Exception e) {
             log.error("全量重建帖子索引失败: {}", e.getMessage(), e);
@@ -318,58 +283,6 @@ public class PostIndexService {
         }
         long total = resp.hits().total() != null ? resp.hits().total().value() : ids.size();
         return new SearchResult(ids, total, highlights);
-    }
-
-    // ── 同步失败待修复队列 ─────────────────────────────────────────────────────
-
-    /**
-     * 将失败的同步操作记入 Redis 待修复队列。
-     * 队列只保留最近 {@link #PENDING_MAX} 条并带 TTL，防止 ES 长期不可用时无限增长。
-     */
-    private void enqueuePending(String op, Long postId) {
-        try {
-            redisTemplate.opsForList().rightPush(PENDING_KEY, op + ":" + postId);
-            redisTemplate.opsForList().trim(PENDING_KEY, -PENDING_MAX, -1);
-            redisTemplate.expire(PENDING_KEY, Duration.ofDays(PENDING_TTL_DAYS));
-        } catch (Exception e) {
-            log.error("写入 ES 待修复队列失败, op={}, postId={}: {}", op, postId, e.getMessage());
-        }
-    }
-
-    /**
-     * 重放待修复队列（启动后定时执行）：
-     * "index:{id}" 按库内最新状态重建或删除文档；"delete:{id}" 删除文档。
-     * 单条失败会重新入队，留给下一轮继续重试。
-     */
-    @Scheduled(fixedDelayString = "${forum.es.repair-interval-ms:300000}")
-    public void retryPendingOps() {
-        for (int i = 0; i < REPAIR_BATCH; i++) {
-            String entry = redisTemplate.opsForList().leftPop(PENDING_KEY);
-            if (entry == null) {
-                return;
-            }
-            try {
-                int idx = entry.indexOf(':');
-                if (idx <= 0) {
-                    continue;
-                }
-                String op = entry.substring(0, idx);
-                Long postId = Long.parseLong(entry.substring(idx + 1));
-                if ("delete".equals(op)) {
-                    deletePost(postId);
-                    continue;
-                }
-                // index 操作：以库内最新状态为准——正常帖子重建，已删/隐藏帖子走删除
-                Post post = postMapper.selectById(postId);
-                if (post != null && post.getStatus() != null && post.getStatus() == 1) {
-                    indexPost(post);
-                } else {
-                    deletePost(postId);
-                }
-            } catch (Exception e) {
-                log.warn("重放 ES 待修复操作失败, entry={}: {}", entry, e.getMessage());
-            }
-        }
     }
 
     /** 检索结果：命中的帖子 ID（按所选排序）、命中总数与高亮片段（postId -> 字段 -> 片段列表） */

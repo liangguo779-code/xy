@@ -13,6 +13,11 @@ public enum OrderStatus {
     // 配送流程
     DELIVERY_NEGOTIATING(5, "协商跑腿费中"),
     PENDING_DELIVERY(6, "待派单"),
+
+    // 热卖流程：下单已扣库存，等待买家二次确认（超时未确认自动取消并释放库存）
+    HOT_PENDING_CONFIRM(10, "待用户确认"),
+    /** 仅票据 VO 使用：已确认待 worker 落库（不入库，DB 单出生即 status=6） */
+    HOT_PROCESSING(11, "处理中"),
     ASSIGNED(7, "已派单/待取货"),
     PICKED_UP(8, "已取货/配送中"),
     DELIVERED(9, "已送达/待确认收货"),

@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS `goods` (
     `type`           TINYINT DEFAULT 0 COMMENT '类型: 0-出售 1-求购',
     `status`         TINYINT DEFAULT 0 COMMENT '状态: 0-已上架 1-已下架 2-已售出 3-待审核/已预订',
     `reserve_ref`    BIGINT DEFAULT NULL COMMENT '占位持有者: 交易请求会话ID或订单ID, NULL=无占位',
+    `goods_type`     TINYINT DEFAULT 0 COMMENT '商品类型: 0-二手(一物一占位) 1-热卖(管理员发布,库存计数)',
+    `stock`          INT DEFAULT NULL COMMENT '可售库存(仅热卖): 运行时以 Redis hot:stock:{id} 为扣减权威',
+    `sales`          INT DEFAULT 0 COMMENT '已售数量(仅热卖): 二次确认成功时累加',
+    `purchase_limit` INT DEFAULT NULL COMMENT '单人限购(仅热卖): NULL/0 不限购',
     `view_count`     INT DEFAULT 0 COMMENT '浏览量',
     `want_count`     INT DEFAULT 0 COMMENT '"我想要"次数',
     `like_count`     INT DEFAULT 0 COMMENT '收藏数',
@@ -115,6 +119,10 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
 -- 配送状态流转:
 --   待支付服务费(5) → 服务费已付/待派单(6) → 已派单/待取货(7)
 --   → 已取货/配送中(8) → 已送达/待确认收货(9) → 已完成(3) / 已取消(4)
+--
+-- 热卖状态流转:
+--   待用户确认(10) → 二次确认后进待派单(6) → 之后同配送流
+--   待用户确认(10) → 超时未确认/买家取消 → 已取消(4) 并释放库存
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `order` (
     `id`               BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -128,6 +136,9 @@ CREATE TABLE IF NOT EXISTS `order` (
     `delivery_fee_payer` VARCHAR(10) DEFAULT 'buyer' COMMENT '跑腿费付款方: buyer/seller',
     `verify_code`      VARCHAR(8) COMMENT '自提核销码(卖家确认用)',
     `status`           TINYINT DEFAULT 0 COMMENT '订单状态(见上方说明)',
+    `quantity`         INT DEFAULT 1 COMMENT '购买数量(热卖用), 二手固定1',
+    `goods_type`       TINYINT DEFAULT 0 COMMENT '冗余商品类型: 0-二手 1-热卖',
+    `expire_time`      DATETIME COMMENT '二次确认截止(仅热卖待确认), 超时自动取消释放库存',
     `pickup_location`  VARCHAR(200) COMMENT '自提地点',
     `pickup_time`      DATETIME COMMENT '约定自提时间',
     `complete_time`    DATETIME COMMENT '完成时间',
@@ -694,3 +705,22 @@ INSERT IGNORE INTO `sensitive_word` (`word`, `category`, `level`) VALUES
 ('买卖枪支', '违禁', 1),
 ('气枪', '违禁', 1),
 ('管制刀具', '违禁', 1);
+
+-- ============================================================
+-- ES 同步事务性发件箱（Transactional Outbox）
+-- 业务表变更与本表在同一事务内写入，崩溃不丢同步意图
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `es_sync_outbox` (
+    `id`            BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `biz_type`      VARCHAR(16) NOT NULL COMMENT '业务类型: goods-商品 post-帖子',
+    `biz_id`        BIGINT      NOT NULL COMMENT '业务主键 ID',
+    `op`            VARCHAR(8)  NOT NULL COMMENT '同步意图: index-重建文档 delete-移除文档',
+    `status`        TINYINT     NOT NULL DEFAULT 0 COMMENT '0-待同步 1-已同步',
+    `retry_count`   INT         NOT NULL DEFAULT 0 COMMENT '失败重试次数（指数退避）',
+    `next_retry_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次可重试时间',
+    `create_time`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time`   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- 同一实体只保留"最新意图"一行：重复 record 走 ON DUPLICATE KEY UPDATE 覆盖
+    UNIQUE KEY `uk_biz` (`biz_type`, `biz_id`),
+    KEY `idx_poll` (`status`, `next_retry_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ES 同步事务性发件箱';

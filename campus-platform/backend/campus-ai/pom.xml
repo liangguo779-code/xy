@@ -75,12 +75,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- BM25 tokenization (Chinese) -->
-        <dependency>
-            <groupId>com.huaban</groupId>
-            <artifactId>jieba-analysis</artifactId>
-        </dependency>
-
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

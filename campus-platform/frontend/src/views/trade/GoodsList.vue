@@ -102,6 +102,7 @@
                 <div class="img-placeholder"><el-icon :size="32"><Picture /></el-icon></div>
               </template>
             </el-image>
+            <el-tag v-if="item.goodsType === 1" class="hot-tag" type="danger" size="small" effect="dark">热卖</el-tag>
             <el-tag v-if="item.type === 1" class="want-tag" type="warning" size="small">求购</el-tag>
             <!-- 被发起交易（status=3 且有占位）：卡片展示"已预订"角标 -->
             <el-tag v-if="item.status === 3" class="reserved-tag" type="warning" size="small">已预订</el-tag>
@@ -651,6 +652,9 @@ onMounted(async () => {
 }
 
 .want-tag { position: absolute; top: 8px; left: 8px; border-radius: 999px; }
+.hot-tag { position: absolute; top: 8px; left: 8px; border-radius: 999px; }
+/* 热卖角标在时下移求购角标，避免左上角重叠 */
+.hot-tag + .want-tag { top: 36px; }
 .reserved-tag { position: absolute; top: 8px; right: 8px; border-radius: 999px; }
 .condition-tag {
   position: absolute;

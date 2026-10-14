@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.campus.common.entity.BanRecord;
+import com.campus.common.es.EsSyncHandler;
 import com.campus.common.exception.BusinessException;
 import com.campus.common.service.BanService;
+import com.campus.common.service.EsOutboxService;
 import com.campus.trade.dto.CreateOrderReq;
 import com.campus.trade.dto.CreateReviewReq;
 import com.campus.trade.dto.OrderVO;
@@ -16,7 +18,6 @@ import com.campus.trade.enums.DeliveryStatus;
 import com.campus.trade.enums.OrderStatus;
 import com.campus.trade.mapper.*;
 import com.campus.trade.service.DeliveryService;
-import com.campus.trade.service.GoodsIndexService;
 import com.campus.trade.service.OrderService;
 import com.campus.trade.service.OrderTimeoutService;
 import com.campus.trade.service.ReviewService;
@@ -59,7 +60,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final ReviewMapper reviewMapper;
     private final DeliveryOrderMapper deliveryOrderMapper;
     private final DeliveryService deliveryService;
-    private final GoodsIndexService goodsIndexService;
+    private final EsOutboxService esOutboxService;
     private final ChatWebSocketHandler wsHandler;
     private final BanService banService;
     private final com.campus.common.service.NotificationService notificationService;
@@ -265,22 +266,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 }
             }
 
-            // ES 状态同步与通知移出事务：提交后异步执行，ES 故障/通知延迟不再拖垮下单主流程
-            Long goodsId = goods.getId();
+            // 已预订商品保留展示（标记"已预订"）：同步 ES 最新占位状态（reserve_ref 已转移给订单）。
+            // 同事务写发件箱，提交后自动同步——崩溃不丢，ES 故障由发件箱退避重试
+            esOutboxService.recordIndex(EsSyncHandler.TYPE_GOODS, goods.getId());
+            // 通知对方仍留事务外，通知失败不拖垮下单主流程
             Long sellerUserId = goods.getUserId();
-            runAfterCommitAsync(() -> {
-                try {
-                    // 已预订商品保留展示（标记"已预订"）：同步 ES 最新占位状态（reserve_ref 已转移给订单）
-                    Goods indexed = goodsMapper.selectById(goodsId);
-                    if (indexed != null) {
-                        goodsIndexService.indexGoods(indexed);
-                    }
-                } catch (Exception e) {
-                    log.warn("下单后同步 ES 状态失败: goodsId={}", goodsId, e);
-                }
-                // 通知对方
-                notifyUser(sellerUserId, "new_order", order);
-            });
+            runAfterCommitAsync(() -> notifyUser(sellerUserId, "new_order", order));
 
             log.info("订单创建: orderNo={}, dealType={}", order.getOrderNo(), req.getDealType());
             created = true;
@@ -383,15 +374,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .eq(Goods::getStatus, 3)
                 .set(Goods::getStatus, 2));
 
-        // 已售出不再展示：移出 ES 检索（与手动标记售出/下架同模式），提交后异步执行
-        Long soldGoodsId = order.getGoodsId();
-        runAfterCommitAsync(() -> {
-            try {
-                goodsIndexService.deleteGoods(soldGoodsId);
-            } catch (Exception e) {
-                log.warn("售出后同步 ES 下架失败: goodsId={}", soldGoodsId, e);
-            }
-        });
+        // 已售出不再展示：写入 ES 移除意图（同事务），提交后自动同步
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, order.getGoodsId());
 
         // 双方弹评价邀请
         notifyUser(order.getBuyerId(), "review_invite", Map.of(
@@ -498,15 +482,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .eq(Goods::getStatus, 3)
                 .set(Goods::getStatus, 2));
 
-        // 已售出不再展示：移出 ES 检索（与手动标记售出/下架同模式），提交后异步执行
-        Long soldGoodsId = order.getGoodsId();
-        runAfterCommitAsync(() -> {
-            try {
-                goodsIndexService.deleteGoods(soldGoodsId);
-            } catch (Exception e) {
-                log.warn("售出后同步 ES 下架失败: goodsId={}", soldGoodsId, e);
-            }
-        });
+        // 已售出不再展示：写入 ES 移除意图（同事务），提交后自动同步
+        esOutboxService.recordDelete(EsSyncHandler.TYPE_GOODS, order.getGoodsId());
 
         // 双方弹评价邀请
         notifyUser(order.getBuyerId(), "review_invite", Map.of(
@@ -540,6 +517,20 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (order == null) throw new BusinessException("订单不存在");
         if (!order.getBuyerId().equals(userId) && !order.getSellerId().equals(userId)) {
             throw new BusinessException(403, "无权操作");
+        }
+        // 热卖订单单独分流：确认后进入派单流程不允许自助取消。
+        // 新模型票据无 DB 行（取消走 /api/orders/hot/{orderNo}/cancel-hot），
+        // 这里只处理部署瞬间的老模型 status=10 存量行：直接置取消
+        if (order.getGoodsType() != null && order.getGoodsType() == 1) {
+            if (order.getStatus() == OrderStatus.HOT_PENDING_CONFIRM.getCode()) {
+                orderMapper.update(null, new LambdaUpdateWrapper<Order>()
+                        .eq(Order::getId, orderId)
+                        .eq(Order::getStatus, OrderStatus.HOT_PENDING_CONFIRM.getCode())
+                        .set(Order::getStatus, OrderStatus.CANCELLED.getCode())
+                        .set(Order::getUpdateTime, LocalDateTime.now()));
+                return getOrderDetail(userId, orderId);
+            }
+            throw new BusinessException("热卖订单已进入派单/配送流程，如需取消请联系客服或发起纠纷");
         }
         if (order.getStatus() == OrderStatus.COMPLETED.getCode()
                 || order.getStatus() == OrderStatus.CANCELLED.getCode()) {
@@ -741,6 +732,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         vo.setPickupTime(order.getPickupTime());
         vo.setCompleteTime(order.getCompleteTime());
         vo.setCreateTime(order.getCreateTime());
+        vo.setQuantity(order.getQuantity());
+        vo.setExpireTime(order.getExpireTime());
+        vo.setGoodsType(order.getGoodsType());
 
         // 填充商品和用户信息
         Goods goods = goodsMapper.selectById(order.getGoodsId());

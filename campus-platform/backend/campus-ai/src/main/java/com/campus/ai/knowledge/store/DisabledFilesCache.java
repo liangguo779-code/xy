@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 对应 Python 服务的 {@code _config.json} + 30 秒内存缓存。
- * 被禁用的文件会从向量检索和 BM25 检索中排除。
+ * 被禁用的文件会从向量检索和关键词检索中排除。
  */
 @Slf4j
 @Component

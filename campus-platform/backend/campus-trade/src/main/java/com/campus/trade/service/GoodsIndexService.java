@@ -91,7 +91,13 @@ public class GoodsIndexService {
                 .mappings(m -> m.properties(properties)));
     }
 
-    /** 索引单个商品（新增或覆盖更新），失败仅记日志不影响业务主流程 */
+    /**
+     * 索引单个商品（新增或覆盖更新）。
+     *
+     * <p>失败<b>抛出</b>而不静默吞掉：调用方是 {@code GoodsEsSyncHandler}，
+     * 由发件箱捕获异常后退避重试。业务代码不应直接调用本方法，改调
+     * {@code EsOutboxService.recordIndex}。
+     */
     public void indexGoods(Goods goods) {
         try {
             GoodsDocument doc = GoodsDocument.fromGoods(goods);
@@ -100,18 +106,27 @@ public class GoodsIndexService {
                     .id(String.valueOf(goods.getId()))
                     .document(doc));
         } catch (Exception e) {
-            log.warn("索引商品失败, goodsId={}: {}", goods.getId(), e.getMessage());
+            throw new RuntimeException("索引商品失败, goodsId=" + goods.getId() + ": " + e.getMessage(), e);
         }
     }
 
-    /** 删除单个商品的索引文档，失败仅记日志 */
+    /**
+     * 删除单个商品的索引文档。失败抛出，由发件箱退避重试（同 {@link #indexGoods}）。
+     * 文档不存在时 ES 返回 404，此处视作已达成目标，不抛出。
+     */
     public void deleteGoods(Long goodsId) {
         try {
             esClient.delete(d -> d
                     .index(INDEX_NAME)
                     .id(String.valueOf(goodsId)));
+        } catch (co.elastic.clients.elasticsearch._types.ElasticsearchException e) {
+            // 404 = 文档本就不在，删除目标已达成；其余错误（5xx/连接失败）继续上抛触发重试
+            if (e.status() == 404) {
+                return;
+            }
+            throw new RuntimeException("删除商品索引失败, goodsId=" + goodsId + ": " + e.getMessage(), e);
         } catch (Exception e) {
-            log.warn("删除商品索引失败, goodsId={}: {}", goodsId, e.getMessage());
+            throw new RuntimeException("删除商品索引失败, goodsId=" + goodsId + ": " + e.getMessage(), e);
         }
     }
 

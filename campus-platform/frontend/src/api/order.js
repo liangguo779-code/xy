@@ -5,6 +5,31 @@ export function createOrder(data) {
   return request.post('/api/orders', data)
 }
 
+/** 热卖下单：Lua 原子扣库存+票据入队（消费才产生订单），返回票据（orderNo 跳票据页） */
+export function createHotOrder(data) {
+  return request.post('/api/orders/hot', data)
+}
+
+/** 热卖票据二次确认（购买承诺）：迁入已确认队列，返回「处理中」 */
+export function confirmHotTicket(orderNo, goodsId) {
+  return request.put(`/api/orders/hot/${orderNo}/confirm-purchase`, null, { params: { goodsId } })
+}
+
+/** 热卖票据待确认期取消并释放库存（确认后不可自助取消） */
+export function cancelHotTicket(orderNo, goodsId) {
+  return request.put(`/api/orders/hot/${orderNo}/cancel-hot`, null, { params: { goodsId } })
+}
+
+/** 热卖票据详情（处理中轮询用；已落库时回填 orderId） */
+export function getHotTicket(orderNo) {
+  return request.get(`/api/orders/hot/ticket/${orderNo}`)
+}
+
+/** 我的热卖票据（「我的订单」合并展示用） */
+export function getMyHotTickets() {
+  return request.get('/api/orders/hot/tickets/my')
+}
+
 /** 卖家确认订单(自提) */
 export function confirmOrder(id) {
   return request.put(`/api/orders/${id}/confirm`)

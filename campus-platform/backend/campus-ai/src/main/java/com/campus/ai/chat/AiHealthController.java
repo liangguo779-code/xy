@@ -1,7 +1,6 @@
 package com.campus.ai.chat;
 
 import com.campus.ai.config.AiProperties;
-import com.campus.ai.retrieval.Bm25Index;
 import com.campus.ai.retrieval.VectorStoreFacade;
 import com.campus.common.result.R;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +13,7 @@ import java.util.Map;
 
 /**
  * 轻量级健康检查端点，对应之前 Python 服务的 {@code /health}。
- * 报告当前配置的 LLM、向量存储、Embedding 模型和 BM25 索引大小。
+ * 报告当前配置的 LLM、向量存储、Embedding 模型和关键词检索通道信息。
  */
 @RestController
 @RequestMapping("/api/ai")
@@ -23,9 +22,8 @@ public class AiHealthController {
 
     private final AiProperties props;
     private final VectorStoreFacade vectorStore;
-    private final Bm25Index bm25;
 
-    /** 汇总 LLM/向量库/BM25/知识目录的配置与规模信息，供运维快速核对环境。 */
+    /** 汇总 LLM/向量库/关键词检索/知识目录的配置与规模信息，供运维快速核对环境。 */
     @GetMapping("/health")
     public R<Map<String, Object>> health() {
         Map<String, Object> body = new LinkedHashMap<>();
@@ -45,9 +43,12 @@ public class AiHealthController {
         vector.put("documentCount", vectorStore.count());
         checks.put("vectorStore", vector);
 
-        Map<String, Object> bm25c = new LinkedHashMap<>();
-        bm25c.put("documentCount", bm25.size());
-        checks.put("bm25", bm25c);
+        // 关键词检索与向量共用 ES 索引（text 字段 IK 分词），报告索引名与规模便于核对。
+        Map<String, Object> keyword = new LinkedHashMap<>();
+        keyword.put("index", props.getVector().getIndexName());
+        keyword.put("analyzer", "ik_max_word/ik_smart");
+        keyword.put("documentCount", vectorStore.count());
+        checks.put("keyword", keyword);
 
         Map<String, Object> knowledge = new LinkedHashMap<>();
         knowledge.put("dir", props.getKnowledge().getDir());

@@ -3,6 +3,7 @@ package com.campus.ai.retrieval;
 import com.campus.ai.config.AiProperties;
 import com.campus.ai.knowledge.model.ChunkDto;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.KnnQuery;
 import co.elastic.clients.elasticsearch.core.*;
 import co.elastic.clients.elasticsearch.core.search.Hit;
@@ -12,13 +13,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Elasticsearch 向量存储门面：封装 ES Java Client 的 KNN 向量检索。
+ * Elasticsearch 存储门面：封装 ES Java Client 的 KNN 向量检索与 IK 全文关键词检索。
  *
  * <p>直接使用 ES Client 而非 LangChain4j 的 {@code ElasticsearchEmbeddingStore}，
  * 原因是我们需要自定义字段（source、chunk_index、section_title、section_path、
- * parent_index、is_parent）和自定义映射（dense_vector + cosine 相似度）。
+ * parent_index、is_parent）和自定义映射（dense_vector + cosine 相似度 +
+ * text 字段的 ik_max_word/ik_smart 中文分析器）。
  * LangChain4j 内置的 store 只支持扁平的"文本 + 向量"结构。
  *
  * <p>如果没有这个文件：
@@ -26,6 +29,7 @@ import java.util.*;
  *   <li>知识文档的向量无法写入 Elasticsearch，检索功能完全不可用</li>
  *   <li>父子分块的元数据（parent_index、section_path）无法存储和查询</li>
  *   <li>知识库的增删改查（上传、重建、删除）将失去底层存储支撑</li>
+ *   <li>关键词检索（IK 分词 BM25）通道不可用，只剩纯向量检索</li>
  * </ul>
  */
 @Slf4j
@@ -33,29 +37,77 @@ import java.util.*;
 @RequiredArgsConstructor
 public class VectorStoreFacade {
 
+    /** IK 分词器：建索引用细粒度切分提高召回，检索用智能切分避免过度匹配。 */
+    private static final String INDEX_ANALYZER = "ik_max_word";
+    private static final String SEARCH_ANALYZER = "ik_smart";
+
     private final ElasticsearchClient esClient;
     private final dev.langchain4j.model.embedding.EmbeddingModel embeddingModel;
     private final AiProperties props;
 
-    /** 启动时确保 ES 索引存在；不存在则按配置的向量维度创建 dense_vector 映射。 */
+    /**
+     * 检测到旧映射（text 无 IK 分析器）并已删除重建索引时置 true。
+     * 旧数据随索引删除丢失，需由 KnowledgeService 启动后触发全量重建回填。
+     */
+    private final AtomicBoolean pendingRebuild = new AtomicBoolean(false);
+
+    /** 启动时确保 ES 索引存在且映射含 IK 分析器；缺失或过时则重建索引。 */
     @PostConstruct
     void ensureIndex() {
         try {
             boolean exists = esClient.indices().exists(e -> e.index(indexName())).value();
-            if (exists) { log.info("ES index '{}' already exists", indexName()); return; }
+            if (exists) {
+                if (ikMappingReady()) {
+                    log.info("ES index '{}' already exists with IK analyzers", indexName());
+                    return;
+                }
+                // 映射里的 analyzer 不可原地修改 —— 旧索引（无 IK）只能删掉重建。
+                // 语料都在磁盘知识文件里，重建后由调用方全量重新入库即可恢复。
+                log.warn("ES index '{}' exists but text field lacks IK analyzers, recreating index",
+                        indexName());
+                esClient.indices().delete(d -> d.index(indexName()));
+                pendingRebuild.set(true);
+            }
             int dim = props.getVector().getEmbeddingDim();
-            log.info("Creating ES index '{}' with dim={}", indexName(), dim);
+            log.info("Creating ES index '{}' with dim={}, analyzers={}/{}",
+                    indexName(), dim, INDEX_ANALYZER, SEARCH_ANALYZER);
             esClient.indices().create(c -> c.index(indexName()).mappings(m -> m
-                    .properties("text", p -> p.text(t -> t))
+                    .properties("text", p -> p.text(t -> t
+                            .analyzer(INDEX_ANALYZER)
+                            .searchAnalyzer(SEARCH_ANALYZER)))
                     .properties("source", p -> p.keyword(k -> k))
                     .properties("chunk_index", p -> p.integer(i -> i))
-                    .properties("section_title", p -> p.text(t -> t))
-                    .properties("section_path", p -> p.text(t -> t))
+                    .properties("section_title", p -> p.text(t -> t
+                            .analyzer(INDEX_ANALYZER)
+                            .searchAnalyzer(SEARCH_ANALYZER)))
+                    .properties("section_path", p -> p.text(t -> t
+                            .analyzer(INDEX_ANALYZER)
+                            .searchAnalyzer(SEARCH_ANALYZER)))
                     .properties("parent_index", p -> p.integer(i -> i))
                     .properties("is_parent", p -> p.boolean_(b -> b))
                     .properties("embedding", p -> p.denseVector(d -> d.dims(dim).index(true).similarity("cosine")))
             ));
         } catch (Exception e) { log.error("Ensure index failed: {}", e.getMessage(), e); }
+    }
+
+    /** 索引存在但因旧映射被删除重建（数据已清空），调用方需触发知识库全量重建回填。 */
+    public boolean isPendingRebuild() {
+        return pendingRebuild.get();
+    }
+
+    /** 读取 text 字段映射，判断是否已配置 IK 分析器。 */
+    private boolean ikMappingReady() {
+        try {
+            var resp = esClient.indices().getMapping(g -> g.index(indexName()));
+            var mapping = resp.result().get(indexName());
+            if (mapping == null || mapping.mappings() == null) return false;
+            var textProp = mapping.mappings().properties().get("text");
+            return textProp != null && textProp.isText()
+                    && INDEX_ANALYZER.equals(textProp.text().analyzer());
+        } catch (Exception e) {
+            log.warn("Failed to read mapping of '{}', will recreate: {}", indexName(), e.getMessage());
+            return false;
+        }
     }
 
     private String indexName() { return props.getVector().getIndexName(); }
@@ -181,6 +233,56 @@ public class VectorStoreFacade {
     }
 
     /**
+     * IK 全文关键词检索（替代原内存 jieba BM25 索引）。
+     *
+     * <p>text 字段建索引时用 ik_max_word 细粒度切分、检索时用 ik_smart 智能切分，
+     * ES 按 BM25 公式打分。查询走 multi_match（text 为主，章节标题/路径加权），
+     * 与向量通道同样的父分块过滤与禁用来源过滤。
+     *
+     * @param query            查询文本（ES 内部做 IK 分词）
+     * @param topK             返回条数上限
+     * @param disabledSources  禁用的知识来源，命中则跳过（可为 null）
+     */
+    public List<KeywordHit> searchKeyword(String query, int topK, Set<String> disabledSources) {
+        if (query == null || query.isBlank() || topK <= 0) return List.of();
+        try {
+            // 多取候选，补偿禁用来源过滤带来的损耗。
+            int fetchSize = topK * 3;
+            SearchRequest.Builder sb = new SearchRequest.Builder().index(indexName()).size(fetchSize)
+                    .query(q -> q.bool(b -> {
+                        b.must(m -> m.multiMatch(mm -> mm
+                                .query(query)
+                                .fields("text^2", "section_title", "section_path")));
+                        // 只用子分块做检索（父分块由 HybridRetriever 在命中后展开）。
+                        b.filter(f -> f.term(t -> t.field("is_parent").value(false)));
+                        if (disabledSources != null && !disabledSources.isEmpty()) {
+                            List<FieldValue> vals = disabledSources.stream().map(FieldValue::of).toList();
+                            b.mustNot(mn -> mn.terms(t -> t.field("source").terms(tv -> tv.value(vals))));
+                        }
+                        return b;
+                    }));
+            sb.source(s -> s.filter(f -> f.includes("text", "source", "chunk_index")));
+            SearchResponse<Map> resp = esClient.search(sb.build(), Map.class);
+            List<KeywordHit> out = new ArrayList<>();
+            for (var h : resp.hits().hits()) {
+                Map src = h.source();
+                if (src == null) continue;
+                out.add(new KeywordHit(
+                        (String) src.get("source"),
+                        src.containsKey("chunk_index") ? ((Number) src.get("chunk_index")).intValue() : 0,
+                        (String) src.get("text"),
+                        h.score() == null ? 0d : h.score()
+                ));
+                if (out.size() >= topK) break;
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("searchKeyword failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * 根据 source 和 chunkIndex 获取指定分块。
      * 用于在子分块匹配时获取其父分块。
      */
@@ -223,4 +325,7 @@ public class VectorStoreFacade {
             this(source, chunkIndex, content, score, parentIndex, isParent, "");
         }
     }
+
+    /** 关键词检索（IK 全文）命中结果。 */
+    public record KeywordHit(String source, int chunkIndex, String content, double score) {}
 }
