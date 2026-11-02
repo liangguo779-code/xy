@@ -52,6 +52,12 @@ public class AiProperties {
         private double mediumConfidenceThreshold = -0.3;
         /** RRF 融合常数 k。 */
         private int bm25K = 60;
+        /**
+         * 重排序中关键词覆盖率的权重（0~1），语义分权重 = 1 - 该值。
+         * 默认 0.7 表示「关键词 : 语义 ≈ 7 : 3」——政策条款场景下原词命中是强证据，
+         * 但保留语义通道的话语权（cross-encoder 归一化后 [0,1]）。
+         */
+        private double rerankKeywordWeight = 0.7;
     }
 
     @Data

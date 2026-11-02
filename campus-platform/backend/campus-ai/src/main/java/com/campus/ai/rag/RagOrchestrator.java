@@ -550,10 +550,11 @@ public class RagOrchestrator {
 
     /**
      * 重排序：cross-encoder 语义分 + 关键词覆盖率组合排序，取 topK。
-     * combined = -keywordScore*10 + rerankScore*0.1（升序排，越小越好）：
-     * 关键词命中权重远高于语义分，因为 cross-encoder 对中文短句区分度有限，
-     * 命中用户原词的片段更可能是正确答案；rerankScore 归一化后在 [-1,0]（越低越好），
-     * 乘 0.1 缩放到次要项。
+     * combined = keywordWeight * keywordScore + (1 - keywordWeight) * semantic
+     * （降序排，越大越好）：关键词覆盖率与语义分都先归一到 [0,1]（1 = 最好），
+     * 再按配置权重加权。默认 keywordWeight=0.7 表示「关键词 : 语义 ≈ 7 : 3」——
+     * 政策条款场景下原词命中是强证据，但保留语义通道的话语权，
+     * 而非旧版 100:1 的极端偏置（cross-encoder 对中文短句区分度有限，仅作微调）。
      */
     private List<Ranked> rerankWithScores(String question, List<HybridRetriever.Hit> hits, int topK) {
         if (hits.isEmpty()) return List.of();
@@ -561,14 +562,18 @@ public class RagOrchestrator {
         for (HybridRetriever.Hit h : hits) segments.add(dev.langchain4j.data.segment.TextSegment.from(h.content()));
         List<Double> rerankerScores = scoringModel.scoreAll(segments, question).content();
         Set<String> queryKeywords = extractKeywords(question);
+        double keywordWeight = props.getKnowledge().getRerankKeywordWeight();
 
         List<Ranked> ranked = new ArrayList<>();
         for (int i = 0; i < hits.size(); i++) {
             double rerankScore = rerankerScores.get(i);
             double keywordScore = computeKeywordScore(hits.get(i).content(), queryKeywords);
-            ranked.add(new Ranked(hits.get(i), -keywordScore * 10.0 + rerankScore * 0.1, rerankScore, keywordScore));
+            // rerankScore 归一化后在 [-1,0]（越低越相关），映射到 [0,1]（越高越好）再与关键词覆盖率同域加权。
+            double semantic = 1.0 + rerankScore;
+            double combined = keywordWeight * keywordScore + (1.0 - keywordWeight) * semantic;
+            ranked.add(new Ranked(hits.get(i), combined, rerankScore, keywordScore));
         }
-        ranked.sort(Comparator.comparingDouble(Ranked::combined));
+        ranked.sort(Comparator.comparingDouble(Ranked::combined).reversed());
         return ranked.subList(0, Math.min(topK, ranked.size()));
     }
 

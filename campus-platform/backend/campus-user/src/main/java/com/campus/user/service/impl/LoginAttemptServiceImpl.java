@@ -13,7 +13,7 @@ import java.time.Duration;
  * 登录防爆破实现：Redis 计数 + 临时锁定。
  *
  * <p>计数窗口 15 分钟（固定窗口，首次失败时设置 TTL）；
- * 锁定 key 独立计时 15 分钟，到期自动解锁。
+ * 锁定 key 独立计时 1 分钟，到期自动解锁。
  */
 @Slf4j
 @Service
@@ -30,13 +30,15 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
     private static final String LOCK_IP_KEY = "login:lock:ip:";
 
     /** 账号失败达到该阈值需图形验证码 */
-    private static final long CAPTCHA_THRESHOLD = 3;
+    private static final long CAPTCHA_THRESHOLD = 10;
     /** 账号失败达到该阈值锁定 */
-    private static final long USER_LOCK_THRESHOLD = 5;
+    private static final long USER_LOCK_THRESHOLD = 20;
     /** IP 失败达到该阈值锁定 */
-    private static final long IP_LOCK_THRESHOLD = 20;
-    /** 计数窗口与锁定时长 */
+    private static final long IP_LOCK_THRESHOLD = 40;
+    /** 失败计数窗口 */
     private static final Duration WINDOW = Duration.ofMinutes(15);
+    /** 锁定时长 */
+    private static final Duration LOCK_DURATION = Duration.ofMinutes(1);
 
     private final StringRedisTemplate redis;
 
@@ -68,12 +70,12 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
         Long ipFails = increment(FAIL_IP_KEY + ip);
 
         if (userFails != null && userFails >= USER_LOCK_THRESHOLD) {
-            redis.opsForValue().set(LOCK_USER_KEY + username, "1", WINDOW);
-            log.warn("账号因连续登录失败被锁定15分钟: username={}, fails={}", username, userFails);
+            redis.opsForValue().set(LOCK_USER_KEY + username, "1", LOCK_DURATION);
+            log.warn("账号因连续登录失败被锁定1分钟: username={}, fails={}", username, userFails);
         }
         if (ipFails != null && ipFails >= IP_LOCK_THRESHOLD) {
-            redis.opsForValue().set(LOCK_IP_KEY + ip, "1", WINDOW);
-            log.warn("IP 因连续登录失败被锁定15分钟: ip={}, fails={}", ip, ipFails);
+            redis.opsForValue().set(LOCK_IP_KEY + ip, "1", LOCK_DURATION);
+            log.warn("IP 因连续登录失败被锁定1分钟: ip={}, fails={}", ip, ipFails);
         }
     }
 

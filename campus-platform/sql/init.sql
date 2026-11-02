@@ -536,7 +536,7 @@ VALUES ('admin', '$2b$12$jyG4ejeC1OdIlwVycVF.Yu4p.0DHPUP9aAS.odLhWkPlmiLnLwn2m',
 
 -- 示例交付员 (密码: runner123)
 INSERT INTO `user` (`username`, `password`, `nickname`, `phone`, `role`, `status`)
-VALUES ('runner01', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '跑腿小哥', '13800000001', 2, 1);
+VALUES ('runner01', '$2b$10$SgxG4Z47MNhDpyhooIaDwOy1xFGO5ot0yKUvXwq6rE09/RL5bs0pO', '跑腿小哥', '13800000001', 2, 1);
 
 -- 初始分类
 INSERT INTO `category` (`name`, `icon`, `sort_order`, `parent_id`) VALUES
